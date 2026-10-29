@@ -493,6 +493,27 @@ tr{cursor:pointer;}
     </div>
   </div>
 
+  <div id="gwCsvSyncRow" style="display:none;justify-content:center;padding:6px 10px 0;">
+    <button type="button" id="gwCsvSyncBtn" onclick="gwStartCsvSync()" style="display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:4px 14px;font-size:12px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>
+      <span id="gwCsvSyncLabel">更新</span>
+    </button>
+  </div>
+<script>
+(function(){
+  function hasBridge(){try{if(!(window.GiftWallet&&typeof window.GiftWallet.startGiftWalletCsvSync==='function'))return false;var v=String(window.GiftWallet.getAppVersion?window.GiftWallet.getAppVersion():'').replace(/^v/,'').split('.').map(Number);var a=v[0]||0,b=v[1]||0,c=v[2]||0;return a>1||(a===1&&(b>4||(b===4&&c>=3)));}catch(e){return false;}}
+  window.gwStartCsvSync=function(){
+    var b=document.getElementById('gwCsvSyncBtn');
+    if(!b||b.disabled||!hasBridge())return;
+    b.disabled=true;b.style.opacity='.6';
+    var l=document.getElementById('gwCsvSyncLabel');if(l)l.textContent='取得中…';
+    try{window.GiftWallet.startGiftWalletCsvSync();}catch(e){}
+    setTimeout(function(){b.disabled=false;b.style.opacity='';if(l)l.textContent='更新';},60000);
+  };
+  function show(){var r=document.getElementById('gwCsvSyncRow');if(r&&hasBridge())r.style.display='flex';}
+  show();document.addEventListener('DOMContentLoaded',show);
+})();
+</script>
   <!-- フッターカード -->
   <div style="padding:8px 10px 0;">
     <input type="file" id="calFileInput" accept=".csv,text/csv,text/plain,application/csv,application/vnd.ms-excel" multiple style="display:none;" onchange="handleCalFileSelect(event)">

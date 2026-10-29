@@ -253,7 +253,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startCsvSync() {
-        // no-op: auto CSV sync disabled (manual download on point_logs only)
+        if (csvSyncInFlight) return
+        csvSyncInFlight = true
+        webView.loadUrl(POINT_LOGS_AUTO_URL)
+        // Safety reset if download never arrives
+        syncHandler.postDelayed({ csvSyncInFlight = false }, 60_000L)
     }
 
     private fun markCsvSynced() {
@@ -529,12 +533,13 @@ class MainActivity : AppCompatActivity() {
                 csvSyncInFlight = false
                 val msg = message.ifBlank { "CSVの自動取得に失敗しました" }
                 Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                webView.loadUrl(HOME_URL_NOSPLASH)
             }
         }
 
         @JavascriptInterface
         fun startGiftWalletCsvSync() {
-            // no-op stub — do not navigate to #gw-auto-csv / auto modal
+            runOnUiThread { startCsvSync() }
         }
 
         @JavascriptInterface
@@ -1340,9 +1345,66 @@ private val VATON_CSV_JS = """
               }
 
               function autoCsv(){
-                // Disabled: never auto-open CSV modal / never poll-click ダウンロードする.
-                // Manual tap of 「ダウンロードする」 still imports via click/blob capture + DownloadListener.
-                return;
+                if (!location.hash || location.hash.indexOf('gw-auto-csv') < 0) return;
+                if (window.__gwAutoCsvStarted) return;
+                window.__gwAutoCsvStarted = true;
+                window.__gwCsvCaptured = false;
+                var tries = 0;
+                function tick(){
+                  if (window.__gwCsvCaptured) return;
+                  if (!location.hash || location.hash.indexOf('gw-auto-csv') < 0) {
+                    window.__gwAutoCsvStarted = false;
+                    return;
+                  }
+                  tries++;
+                  try {
+                    if (looksLoggedOut()) {
+                      if (tries >= 10) {
+                        notifyLogin();
+                        clearAutoHash();
+                        window.__gwAutoCsvStarted = false;
+                        return;
+                      }
+                      setTimeout(tick, 700);
+                      return;
+                    }
+
+                    // If modal already open, skip re-open and poll download
+                    if (isModalOpen()) {
+                      pollDownload(Date.now() + 18000);
+                      return;
+                    }
+
+                    var openBtn = findBtn('利用実績CSVダウンロード');
+                    if (!openBtn) {
+                      if (tries >= 30) {
+                        notifyLogin();
+                        clearAutoHash();
+                        window.__gwAutoCsvStarted = false;
+                        return;
+                      }
+                      if (clickHistoryTab()) {
+                        setTimeout(tick, 450);
+                        return;
+                      }
+                      setTimeout(tick, 500);
+                      return;
+                    }
+                    fireClick(openBtn);
+                    // After opening modal, poll for download button (~18s)
+                    setTimeout(function(){
+                      pollDownload(Date.now() + 18000);
+                    }, 400);
+                  } catch (e) {
+                    if (tries < 30) setTimeout(tick, 500);
+                    else {
+                      clearAutoHash();
+                      window.__gwAutoCsvStarted = false;
+                      notifyFail('CSVの自動取得に失敗しました');
+                    }
+                  }
+                }
+                setTimeout(tick, 400);
               }
 
               injectBackBtn();
@@ -1353,7 +1415,9 @@ private val VATON_CSV_JS = """
                 mo.observe(document.documentElement, { childList:true, subtree:true });
               } catch (e) {}
 
-              // Do not call autoCsv — landing on point_logs must not open download modal
+              // Only runs when opened via the home 更新 button (#gw-auto-csv)
+              autoCsv();
+              setTimeout(autoCsv, 1200);
             })();
         """.trimIndent()
 
