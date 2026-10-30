@@ -521,8 +521,17 @@ tr{cursor:pointer;}
     document.body.appendChild(o);
     setTimeout(function(){if(o.parentNode)o.remove();},ms||2200);
   };
+window.gwNeedUpdate=function(){
+  var v='';try{v=String(window.GiftWallet&&GiftWallet.getAppVersion?GiftWallet.getAppVersion():'');}catch(e){}
+  var o=document.createElement('div');o.id='gwNeedUpd';
+  o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:100001;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:24px;');
+  o.innerHTML='<div style="background:#14141f;border:2px solid var(--gold);border-radius:20px;padding:26px 22px;text-align:center;color:#fff;max-width:330px;width:100%;"><div style="font-size:18px;font-weight:800;color:var(--gold);">アプリの更新が必要です</div><div style="font-size:13px;opacity:.9;margin:10px 0 18px;line-height:1.7;">この機能は新しい版で使えます。<br>'+(v?'いまの版 v'+v+'<br>':'')+'最新版 v1.4.14 を入れてください。</div><button type="button" id="gwNuGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:14px;font-size:15px;font-weight:800;">更新する</button><button type="button" id="gwNuNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:6px;">やめる</button></div>';
+  document.body.appendChild(o);
+  document.getElementById('gwNuNo').onclick=function(){o.remove();};
+  document.getElementById('gwNuGo').onclick=function(){o.remove();try{if(window.GiftWallet&&typeof GiftWallet.startInAppUpdate==='function'){window.gwUpdAsk();return;}}catch(e){}location.href='https://gift-wallet.pages.dev/install';};
+};
   window.gwPastStart=function(){
-    if(!(window.GiftWallet&&typeof GiftWallet.startPastCsvSync==='function')){if(typeof showToast==='function')showToast('アプリを最新版にしてください');return;}
+    if(!(window.GiftWallet&&typeof GiftWallet.startPastCsvSync==='function')){window.gwNeedUpdate();return;}
     var o=document.createElement('div');o.id='gwPastAsk';
     o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99990;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:24px;');
     o.innerHTML='<div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 20px;text-align:center;color:#fff;max-width:320px;width:100%;"><div style="font-size:16px;font-weight:800;color:var(--gold);">過去1年分を取り込みます</div><div style="font-size:13px;margin:10px 0 16px;line-height:1.6;opacity:.9;">先月から12か月前まで、1か月ずつ自動で取り込みます。数分かかります。先にギフトウォレットにログインしておいてください。</div><button type="button" id="gwPastGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:11px;font-size:14px;font-weight:800;">はじめる</button><button type="button" id="gwPastNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:4px;">やめる</button></div>';
@@ -3300,7 +3309,7 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
       if(!n||n<=0){if(typeof showToast==='function')showToast('ポイントを選んでください');return;}
       sel.points=n;
       if(window.GiftWallet&&typeof window.GiftWallet.startExchange==='function'){closeX();window.GiftWallet.startExchange(sel.brand,String(n));}
-      else{if(typeof showToast==='function')showToast('アプリを最新版にしてください');}
+      else{window.gwNeedUpdate();}
     };
   }
   window.gwExOverlay=function(msg){
