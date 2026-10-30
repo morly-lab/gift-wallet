@@ -511,6 +511,16 @@ tr{cursor:pointer;}
     o.innerHTML='<style>@keyframes gwspin{to{transform:rotate(360deg)}}</style><div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 30px;text-align:center;color:#fff;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="width:34px;height:34px;margin:0 auto 12px;border:3px solid rgba(212,168,67,.3);border-top-color:var(--gold);border-radius:50%;animation:gwspin 1s linear infinite;"></div><div style="font-size:16px;font-weight:800;color:var(--gold);">更新中…</div><div style="font-size:12px;margin-top:6px;opacity:.8;">少しお待ちください</div></div>';
     document.body.appendChild(o);
   };
+  window.gwLoginPrompt=function(){
+    if(document.getElementById('gwLoginPrompt'))return true;
+    var o=document.createElement('div');o.id='gwLoginPrompt';
+    o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99999;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:24px;');
+    o.innerHTML='<div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 20px;text-align:center;color:#fff;max-width:320px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="font-size:16px;font-weight:800;color:var(--gold);">ログインしてください</div><div style="font-size:13px;margin:10px 0 16px;line-height:1.6;opacity:.9;">ギフトウォレットにログインしていないため、今月のCSVを取り込めませんでした。ログインしてから、もう一度「更新」を押してください。</div><button type="button" id="gwLoginGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:11px;font-size:14px;font-weight:800;cursor:pointer;">ログインする</button><button type="button" id="gwLoginLater" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;cursor:pointer;margin-top:4px;">あとで</button></div>';
+    document.body.appendChild(o);
+    document.getElementById('gwLoginGo').onclick=function(){o.remove();location.href='https://wallet.vaton.jp/point/point_logs';};
+    document.getElementById('gwLoginLater').onclick=function(){o.remove();};
+    return true;
+  };
   window.gwStartCsvSync=function(){
     if(busy||!hasBridge())return;
     setBusy(true);
@@ -2704,11 +2714,6 @@ function aiQuickSend(text){
         <a href="https://toklab.app/dashboard/quick-withdraw" target="_self" rel="noopener" data-gw-toklab="1" style="display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;flex:0 0 auto;padding:0 6px;text-decoration:none;" data-hint="toklabのクイック引き出しを開きます">
           <span style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--gold-h),var(--gold));display:flex;align-items:center;justify-content:center;box-shadow:0 3px 14px rgba(150,90,0,.3);margin-top:-18px;font-size:26px;line-height:1;"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#1a1206" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span>
           <span style="font-size:10px;font-weight:700;color:var(--gray2);">クイック引出</span>
-        </a>
-        <!-- d. ギフト（ポイント履歴） -->
-        <a class="smenu-fixed-btn" href="https://wallet.vaton.jp/point/point_logs" target="_self" rel="noopener" style="text-decoration:none;" data-hint="ギフトウォレットのポイント履歴を開きます">
-          <span class="smenu-fixed-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9"/><path d="M12 8v13"/><path d="M12 8C10 4 6 4 7 7c.5 1 3 1 5 1zM12 8c2-4 6-4 5-1-.5 1-3 1-5 1z"/></svg></span>
-          <span class="smenu-fixed-label">ギフト</span>
         </a>
         <!-- e. アプリ更新（スワイプするだけで見える） -->
         <button class="smenu-fixed-btn" onclick="requestAppUpdate()" data-hint="インストール案内ページを開きます（ここから最新APKを入れられます）">

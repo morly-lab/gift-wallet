@@ -558,16 +558,20 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun notifyCsvLoginRequired() {
             runOnUiThread {
-                val silent = csvSyncSilent
                 csvSyncSilent = false
                 finishSyncUi()
-                Toast.makeText(
-                    this@MainActivity,
-                    "ギフトウォレットにログインしてください",
-                    Toast.LENGTH_LONG
-                ).show()
-                // Manual 更新 only: show the vaton page so the user can log in.
-                if (!silent) webView.loadUrl("https://wallet.vaton.jp/point/point_logs")
+                // Ask the home page to show a "please log in" dialog; fall back to a toast.
+                webView.evaluateJavascript(
+                    "(function(){try{return window.gwLoginPrompt?String(window.gwLoginPrompt()):'no';}catch(e){return 'no';}})();"
+                ) { r ->
+                    if (r == null || !r.contains("true")) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "ギフトウォレットにログインしてください",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
             }
         }
 
