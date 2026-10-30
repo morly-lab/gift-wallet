@@ -410,6 +410,7 @@ class MainActivity : AppCompatActivity() {
         syncWebView?.loadUrl(POINT_LOGS_AUTO_URL + "&gw-month=" + Uri.encode(label))
         syncHandler.postDelayed({
             if (pastActive && token == pastToken) {
+                android.util.Log.w("GWPAST", "timeout " + label)
                 finishSyncUi()
                 pastAdvance(false)
             }
@@ -763,6 +764,7 @@ class MainActivity : AppCompatActivity() {
         fun notifyCsvSyncFailed(message: String) {
             runOnUiThread {
                 csvSyncSilent = false
+                android.util.Log.w("GWPAST", "fail " + (pastCurrent ?: "-") + " " + message)
                 finishSyncUi()
                 if (pastActive) { pastAdvance(false); return@runOnUiThread }
                 val msg = message.ifBlank { "CSVの自動取得に失敗しました" }
@@ -1691,6 +1693,19 @@ private val VATON_CSV_JS = """
                 }
                 return false;
               }
+              function diag(){
+                try {
+                  var sels = document.querySelectorAll('select');
+                  var o = [];
+                  for (var i = 0; i < sels.length && i < 2; i++) {
+                    var t = [];
+                  for (var j = 0; j < sels[i].options.length && j < 3; j++) t.push((sels[i].options[j].textContent || '').trim());
+                    o.push(sels[i].options.length + ':' + t.join('|'));
+                  }
+                  var b = [].slice.call(document.querySelectorAll('button')).map(function(x){return (x.textContent||'').trim().slice(0,12);}).slice(0,8).join(',');
+                  return '[sel=' + sels.length + ' ' + o.join(';') + ' modal=' + isModalOpen() + ' btn=' + b + ' want=' + wantMonth() + ' path=' + location.pathname + ']';
+                } catch (e) { return '[diag err]'; }
+              }
               function startPoll(tries){
                 tries = tries || 0;
                 if (applyMonth()) {
@@ -1701,7 +1716,7 @@ private val VATON_CSV_JS = """
                   clickCloseModal();
                   clearAutoHash();
                   window.__gwAutoCsvStarted = false;
-                  notifyFail('月を選べませんでした');
+                  notifyFail('月を選べませんでした ' + diag());
                 }
               }
 
@@ -1724,7 +1739,7 @@ private val VATON_CSV_JS = """
                   clickCloseModal();
                   clearAutoHash();
                   window.__gwAutoCsvStarted = false;
-                  notifyFail('CSVダウンロードに失敗しました。もう一度お試しください');
+                  notifyFail('CSVダウンロードに失敗しました ' + diag());
                   return;
                 }
                 var dl = findBtn('ダウンロードする');
