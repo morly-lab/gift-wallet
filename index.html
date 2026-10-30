@@ -511,16 +511,24 @@ tr{cursor:pointer;}
     o.innerHTML='<style>@keyframes gwspin{to{transform:rotate(360deg)}}</style><div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 30px;text-align:center;color:#fff;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="width:34px;height:34px;margin:0 auto 12px;border:3px solid rgba(212,168,67,.3);border-top-color:var(--gold);border-radius:50%;animation:gwspin 1s linear infinite;"></div><div style="font-size:16px;font-weight:800;color:var(--gold);">更新中…</div><div style="font-size:12px;margin-top:6px;opacity:.8;">少しお待ちください</div></div>';
     document.body.appendChild(o);
   };
-  window.gwLoginPrompt=function(){
+  window.gwLoginPrompt=function(welcome){
     if(document.getElementById('gwLoginPrompt'))return true;
     var o=document.createElement('div');o.id='gwLoginPrompt';
     o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99999;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:24px;');
-    o.innerHTML='<div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 20px;text-align:center;color:#fff;max-width:320px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="font-size:16px;font-weight:800;color:var(--gold);">ログインしてください</div><div style="font-size:13px;margin:10px 0 16px;line-height:1.6;opacity:.9;">ギフトウォレットにログインしていないため、今月のCSVを取り込めませんでした。ログインしてから、もう一度「更新」を押してください。</div><button type="button" id="gwLoginGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:11px;font-size:14px;font-weight:800;cursor:pointer;">ログインする</button><button type="button" id="gwLoginLater" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;cursor:pointer;margin-top:4px;">あとで</button></div>';
+    o.innerHTML='<div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 20px;text-align:center;color:#fff;max-width:320px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="font-size:16px;font-weight:800;color:var(--gold);">ログインしてください</div><div style="font-size:13px;margin:10px 0 16px;line-height:1.6;opacity:.9;">'+(welcome===true?'はじめに、ギフトウォレットにログインしてください。ログインすると、ギフトの履歴を自動で取り込めます。ログイン後は、このアプリに戻ると使えます。':'ギフトウォレットにログインしていないため、今月のCSVを取り込めませんでした。ログインしてから、もう一度「更新」を押してください。')+'</div><button type="button" id="gwLoginGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:11px;font-size:14px;font-weight:800;cursor:pointer;">ログインする</button><button type="button" id="gwLoginLater" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;cursor:pointer;margin-top:4px;">あとで</button></div>';
     document.body.appendChild(o);
     document.getElementById('gwLoginGo').onclick=function(){o.remove();location.href='https://wallet.vaton.jp/point/point_logs';};
     document.getElementById('gwLoginLater').onclick=function(){o.remove();};
     return true;
   };
+  setTimeout(function(){
+    try{
+      if(!window.GiftWallet||localStorage.getItem('gwWelcomed'))return;
+      localStorage.setItem('gwWelcomed','1');
+      if(localStorage.getItem('gwAutoCsvAt')||localStorage.getItem('charge_saved_months'))return;
+      window.gwLoginPrompt(true);
+    }catch(e){}
+  },1200);
   window.gwStartCsvSync=function(){
     if(busy||!hasBridge())return;
     setBusy(true);
@@ -2656,6 +2664,10 @@ function aiQuickSend(text){
         <div class="smenu-expand-title">その他のメニュー</div>
         <div class="smenu-group-title">取り込む</div>
         <div class="smenu-grid">
+          <button class="smenu-grid-btn" onclick="location.href='https://wallet.vaton.jp/point/point_logs';collapseSwipeMenu()">
+            <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg></span>
+            <span class="smenu-grid-label">ギフトウォレット<br>ログイン</span>
+          </button>
           <button class="smenu-grid-btn" onclick="document.getElementById('calFileInput').click();collapseSwipeMenu()">
             <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
             <span class="smenu-grid-label">PayPay CSV</span>
