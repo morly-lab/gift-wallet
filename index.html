@@ -511,14 +511,38 @@ tr{cursor:pointer;}
     o.innerHTML='<style>@keyframes gwspin{to{transform:rotate(360deg)}}</style><div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 30px;text-align:center;color:#fff;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="width:34px;height:34px;margin:0 auto 12px;border:3px solid rgba(212,168,67,.3);border-top-color:var(--gold);border-radius:50%;animation:gwspin 1s linear infinite;"></div><div style="font-size:16px;font-weight:800;color:var(--gold);">更新中…</div><div style="font-size:12px;margin-top:6px;opacity:.8;">少しお待ちください</div></div>';
     document.body.appendChild(o);
   };
-  window.gwDonePopup=function(){
+  window.gwDonePopup=function(msg,sub){
     var old=document.getElementById('gwDonePop');if(old)old.remove();
     var o=document.createElement('div');o.id='gwDonePop';
     o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);');
-    o.innerHTML='<style>@keyframes gwPopIn{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}</style><div style="background:#14141f;border:2px solid var(--gold);border-radius:22px;padding:34px 30px;text-align:center;color:#fff;box-shadow:0 10px 40px rgba(0,0,0,.6);animation:gwPopIn .22s ease-out;max-width:86%;"><div style="font-size:44px;line-height:1;color:var(--gold);">✓</div><div style="font-size:24px;font-weight:800;color:var(--gold);margin-top:12px;line-height:1.4;">更新完了しました！</div></div>';
+    o.innerHTML='<style>@keyframes gwPopIn{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}</style><div style="background:#14141f;border:2px solid var(--gold);border-radius:22px;padding:34px 30px;text-align:center;color:#fff;box-shadow:0 10px 40px rgba(0,0,0,.6);animation:gwPopIn .22s ease-out;max-width:86%;"><div style="font-size:44px;line-height:1;color:var(--gold);">✓</div><div style="font-size:24px;font-weight:800;color:var(--gold);margin-top:12px;line-height:1.4;">'+(msg||'更新完了しました！')+'</div>'+(sub?'<div style="font-size:13px;opacity:.85;margin-top:8px;">'+sub+'</div>':'')+'</div>';
     o.onclick=function(){o.remove();};
     document.body.appendChild(o);
     setTimeout(function(){if(o.parentNode)o.remove();},2200);
+  };
+  window.gwPastStart=function(){
+    if(!(window.GiftWallet&&typeof GiftWallet.startPastCsvSync==='function')){if(typeof showToast==='function')showToast('アプリを最新版にしてください');return;}
+    var o=document.createElement('div');o.id='gwPastAsk';
+    o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99990;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:24px;');
+    o.innerHTML='<div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 20px;text-align:center;color:#fff;max-width:320px;width:100%;"><div style="font-size:16px;font-weight:800;color:var(--gold);">過去1年分を取り込みます</div><div style="font-size:13px;margin:10px 0 16px;line-height:1.6;opacity:.9;">先月から12か月前まで、1か月ずつ自動で取り込みます。数分かかります。先にギフトウォレットにログインしておいてください。</div><button type="button" id="gwPastGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:11px;font-size:14px;font-weight:800;">はじめる</button><button type="button" id="gwPastNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:4px;">やめる</button></div>';
+    document.body.appendChild(o);
+    document.getElementById('gwPastNo').onclick=function(){o.remove();};
+    document.getElementById('gwPastGo').onclick=function(){o.remove();GiftWallet.startPastCsvSync(12);};
+  };
+  window.gwPastOverlay=function(msg){
+    var o=document.getElementById('gwPastBusy');
+    if(msg===null||msg===undefined){if(o)o.remove();return;}
+    if(!o){
+      o=document.createElement('div');o.id='gwPastBusy';
+      o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99995;background:rgba(0,0,0,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;text-align:center;padding:24px;');
+      o.innerHTML='<div style="width:44px;height:44px;border:4px solid rgba(255,255,255,.2);border-top-color:#d4a843;border-radius:50%;animation:gwExSpin 1s linear infinite;"></div><div id="gwPastMsg" style="font-size:15px;font-weight:800;color:#d4a843;line-height:1.6;"></div><button type="button" id="gwPastStop" style="border:none;background:#e0443a;color:#fff;border-radius:999px;padding:10px 22px;font-size:14px;font-weight:800;">止める</button><style>@keyframes gwExSpin{to{transform:rotate(360deg)}}</style>';
+      document.body.appendChild(o);
+      o.querySelector('#gwPastStop').onclick=function(){if(GiftWallet.stopPastCsvSync)GiftWallet.stopPastCsvSync();};
+    }
+    o.querySelector('#gwPastMsg').textContent=msg;
+  };
+  window.gwPastDone=function(ok,fail,total){
+    window.gwDonePopup('過去分の取り込みが完了しました！',(ok)+'か月分を反映'+(fail?'（取れなかった月 '+fail+'か月。月に履歴がない場合もあります）':''));
   };
   window.gwLoginPrompt=function(welcome){
     if(document.getElementById('gwLoginPrompt'))return true;
@@ -2678,6 +2702,10 @@ function aiQuickSend(text){
           <button class="smenu-grid-btn" onclick="location.href='https://wallet.vaton.jp/point/point_logs';collapseSwipeMenu()">
             <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg></span>
             <span class="smenu-grid-label">ギフトウォレット<br>ログイン</span>
+          </button>
+          <button class="smenu-grid-btn" onclick="gwPastStart();collapseSwipeMenu()">
+            <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 109-9 9 9 0 00-7 3.4"/><path d="M3 4v3.5h3.5"/><path d="M12 8v4l3 2"/></svg></span>
+            <span class="smenu-grid-label">過去1年分<br>取り込み</span>
           </button>
           <button class="smenu-grid-btn" onclick="document.getElementById('calFileInput').click();collapseSwipeMenu()">
             <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>

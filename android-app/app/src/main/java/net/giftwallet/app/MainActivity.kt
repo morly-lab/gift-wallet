@@ -291,6 +291,61 @@ class MainActivity : AppCompatActivity() {
         webCall("gwExOverlay", "null")
     }
 
+    private var pastActive = false
+    private var pastQueue = ArrayDeque<String>()
+    private var pastCurrent: String? = null
+    private var pastTotal = 0
+    private var pastOk = 0
+    private var pastFail = 0
+    private var pastToken = 0
+
+    private fun startPastSync(months: Int) {
+        if (pastActive || csvSyncInFlight) return
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo"))
+        pastQueue = ArrayDeque()
+        for (k in 1..months.coerceIn(1, 23)) {
+            cal.add(java.util.Calendar.MONTH, -1)
+            pastQueue.add("${cal.get(java.util.Calendar.YEAR)}年${cal.get(java.util.Calendar.MONTH) + 1}月")
+        }
+        pastTotal = pastQueue.size; pastOk = 0; pastFail = 0; pastActive = true
+        pastNext()
+    }
+
+    private fun pastNext() {
+        if (!pastActive) return
+        val label: String? = if (pastQueue.isEmpty()) null else pastQueue.removeFirst()
+        if (label == null) { endPast(true); return }
+        pastCurrent = label
+        csvSyncInFlight = true
+        csvSyncSilent = true
+        val token = ++pastToken
+        webCall("gwPastOverlay", JSONObject.quote("過去分を取り込み中… ${pastTotal - pastQueue.size}/$pastTotal（$label）"))
+        syncWebView?.loadUrl(POINT_LOGS_AUTO_URL + "&gw-month=" + Uri.encode(label))
+        syncHandler.postDelayed({
+            if (pastActive && token == pastToken) {
+                finishSyncUi()
+                pastAdvance(false)
+            }
+        }, 45_000L)
+    }
+
+    private fun pastAdvance(ok: Boolean) {
+        if (!pastActive) return
+        pastToken++
+        if (ok) pastOk++ else pastFail++
+        syncHandler.postDelayed({ pastNext() }, 1000L)
+    }
+
+    private fun endPast(done: Boolean) {
+        val wasActive = pastActive
+        pastActive = false; pastToken++; pastCurrent = null
+        pastQueue = ArrayDeque()
+        csvSyncInFlight = false
+        syncWebView?.loadUrl("about:blank")
+        webCall("gwPastOverlay", "null")
+        if (wasActive && done) webCall("gwPastDone", "$pastOk,$pastFail,$pastTotal")
+    }
+
     private fun setupSyncWebView() {
         val container = webView.parent as android.view.ViewGroup
         val sw = WebView(this)
@@ -322,7 +377,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startCsvSync() {
-        if (csvSyncInFlight) return
+        if (csvSyncInFlight || pastActive) return
         csvSyncInFlight = true
         setSyncOverlay(true)
         // Hidden WebView does the vaton download in the background; the visible page stays on home.
@@ -342,7 +397,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun importCsvText(text: String, @Suppress("UNUSED_PARAMETER") filename: String) {
-        val fixed = FIXED_CSV_NAME
+        val fixed = if (pastActive && pastCurrent != null) "ポイント履歴_${pastCurrent}.csv" else FIXED_CSV_NAME
         val payload = JSONObject.quote(text)
         val nameJs = JSONObject.quote(fixed)
         val current = webView.url.orEmpty()
@@ -352,7 +407,11 @@ class MainActivity : AppCompatActivity() {
             ) { result ->
                 if (result != null && result.contains("1")) {
                     markCsvSynced()
-                    Toast.makeText(this, "CSVを同期しました", Toast.LENGTH_SHORT).show()
+                    if (!pastActive) Toast.makeText(this, "CSVを同期しました", Toast.LENGTH_SHORT).show()
+                    else pastAdvance(true)
+                } else if (pastActive) {
+                    finishSyncUi()
+                    pastAdvance(false)
                 } else {
                     // Function not ready yet — queue and retry on load
                     pendingCsvText = text
@@ -596,6 +655,7 @@ class MainActivity : AppCompatActivity() {
         fun notifyCsvLoginRequired() {
             runOnUiThread {
                 csvSyncSilent = false
+                if (pastActive) endPast(false)
                 finishSyncUi()
                 // Ask the home page to show a "please log in" dialog; fall back to a toast.
                 webView.evaluateJavascript(
@@ -617,6 +677,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 csvSyncSilent = false
                 finishSyncUi()
+                if (pastActive) { pastAdvance(false); return@runOnUiThread }
                 val msg = message.ifBlank { "CSVの自動取得に失敗しました" }
                 Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
             }
@@ -625,6 +686,16 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun startGiftWalletCsvSync() {
             runOnUiThread { csvSyncSilent = false; startCsvSync() }
+        }
+
+        @JavascriptInterface
+        fun startPastCsvSync(months: Int) {
+            runOnUiThread { startPastSync(months) }
+        }
+
+        @JavascriptInterface
+        fun stopPastCsvSync() {
+            runOnUiThread { endPast(true) }
         }
 
         @JavascriptInterface
@@ -1501,6 +1572,47 @@ private val VATON_CSV_JS = """
                 return false;
               }
 
+              function wantMonth(){
+                try { var m = /gw-month=([^&]+)/.exec(location.hash || ''); return m ? decodeURIComponent(m[1]) : ''; } catch (e) { return ''; }
+              }
+              function applyMonth(){
+                var want = wantMonth();
+                if (!want) return true;
+                var w = /(\d+)年\s*(\d+)月/.exec(want);
+                if (!w) return true;
+                var sels = document.querySelectorAll('select');
+                for (var i = 0; i < sels.length; i++) {
+                  var sel = sels[i];
+                  for (var j = 0; j < sel.options.length; j++) {
+                    var opt = sel.options[j];
+                    var m = /(\d+)年\s*(\d+)月/.exec(opt.textContent || '');
+                    if (m && Number(m[1]) === Number(w[1]) && Number(m[2]) === Number(w[2])) {
+                      try {
+                        var setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+                        setter.call(sel, opt.value);
+                      } catch (e0) { sel.value = opt.value; }
+                      sel.dispatchEvent(new Event('input', { bubbles: true }));
+                      sel.dispatchEvent(new Event('change', { bubbles: true }));
+                      return true;
+                    }
+                  }
+                }
+                return false;
+              }
+              function startPoll(tries){
+                tries = tries || 0;
+                if (applyMonth()) {
+                  setTimeout(function(){ pollDownload(Date.now() + 18000); }, 600);
+                } else if (tries < 12) {
+                  setTimeout(function(){ startPoll(tries + 1); }, 400);
+                } else {
+                  clickCloseModal();
+                  clearAutoHash();
+                  window.__gwAutoCsvStarted = false;
+                  notifyFail('月を選べませんでした');
+                }
+              }
+
               function clearAutoHash(){
                 try {
                   if (location.hash && location.hash.indexOf('gw-auto-csv') >= 0) {
@@ -1557,7 +1669,7 @@ private val VATON_CSV_JS = """
 
                     // If modal already open, skip re-open and poll download
                     if (isModalOpen()) {
-                      pollDownload(Date.now() + 18000);
+                      startPoll(0);
                       return;
                     }
 
@@ -1579,7 +1691,7 @@ private val VATON_CSV_JS = """
                     fireClick(openBtn);
                     // After opening modal, poll for download button (~18s)
                     setTimeout(function(){
-                      pollDownload(Date.now() + 18000);
+                      startPoll(0);
                     }, 400);
                   } catch (e) {
                     if (tries < 30) setTimeout(tick, 500);
