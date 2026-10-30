@@ -11,8 +11,8 @@ android {
         applicationId = "net.giftwallet.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 24
-        versionName = "1.4.8"
+        versionCode = 25
+        versionName = "1.4.9"
     }
 
     buildTypes {

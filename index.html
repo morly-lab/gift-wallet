@@ -3202,7 +3202,7 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
     var h='<div style="font-size:12px;opacity:.8;">'+sel.brand+'</div><div style="font-size:16px;font-weight:800;color:var(--gold);margin:2px 0 10px;">何ポイント交換しますか？</div>';
     POINTS.forEach(function(p,i){h+='<label style="display:flex;align-items:center;gap:10px;padding:11px 8px;border-bottom:1px solid rgba(255,255,255,.08);font-size:15px;"><input type="radio" name="gwExPt" value="'+p+'"'+(i===1?' checked':'')+' style="width:20px;height:20px;accent-color:#d4a843;">'+p.toLocaleString()+' ポイント</label>';});
     h+='<label style="display:flex;align-items:center;gap:10px;padding:11px 8px;font-size:15px;"><input type="radio" name="gwExPt" value="other" style="width:20px;height:20px;accent-color:#d4a843;">その他 <input type="number" id="gwExOther" inputmode="numeric" placeholder="数字" style="flex:1;background:#0d0d16;border:1px solid #444;border-radius:8px;color:#fff;padding:8px;font-size:14px;"></label>';
-    h+='<div style="font-size:11px;opacity:.7;margin:8px 0;">交換画面まで自動で進みます。最後の「交換」ボタンはご自分で押してください。</div>';
+    h+='<div style="font-size:11px;opacity:.7;margin:8px 0;">交換画面まで自動で進みます。最後の交換ボタンも、3秒のカウントダウン後に自動で押します（途中で止められます）。</div>';
     h+='<button type="button" id="gwExGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:12px;font-size:15px;font-weight:800;cursor:pointer;">交換画面へ進む</button><button type="button" id="gwExBack" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">もどる</button>';
     var o=shell(h);
     o.querySelector('#gwExBack').onclick=step1;

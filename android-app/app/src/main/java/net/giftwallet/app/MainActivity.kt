@@ -1641,6 +1641,9 @@ private val VATON_EXCHANGE_JS = """
               var keys = KEYS[J.brand] || [J.brand];
               var NG = /交換する|交換を確定|確定|購入|申し込|はい|OK|同意して/;
               var clicked = {};
+              var stopped = false, armed = null, finalCount = 0, pointsDone = false;
+              var FINAL1 = /^(この内容で)?交換(する|を確定する?|を実行する?|確定|実行)?$|^交換(する|を確定する?|を実行する?)/;
+              var FINAL2 = /^(はい|OK|確定|交換する|交換を確定する?)${'$'}/;
 
               function fire(el){
                 try {
@@ -1669,8 +1672,27 @@ private val VATON_EXCHANGE_JS = """
                 }
                 return best;
               }
+
+              function arm(btn){
+                armed = btn; var left = 3;
+                var st = document.getElementById('gw-ex-status');
+                var stop = document.getElementById('gw-ex-stop');
+                if (stop) stop.style.display = 'inline-block';
+                (function cd(){
+                  if (stopped) return;
+                  if (document.getElementById('gw-ex-status')) document.getElementById('gw-ex-status').textContent = left + '秒後に「' + textOf(btn) + '」を自動で押します';
+                  if (left <= 0) {
+                    fire(btn); finalCount++;
+                    if (document.getElementById('gw-ex-status')) document.getElementById('gw-ex-status').textContent = '「' + textOf(btn) + '」を押しました。結果が出たら「コードを取得」を押してね';
+                    if (document.getElementById('gw-ex-stop')) document.getElementById('gw-ex-stop').style.display = 'none';
+                    setTimeout(function(){ armed = null; }, 2500);
+                    return;
+                  }
+                  left--; setTimeout(cd, 1000);
+                })();
+              }
               function tick(n){
-                if (n > 30) return;
+                if (n > 100 || stopped) return;
                 try {
                   var path = location.pathname;
                   var key = path + '|' + (path.indexOf('brands') >= 0 ? 'b' : 'o');
@@ -1691,9 +1713,14 @@ private val VATON_EXCHANGE_JS = """
                     }
                     if (el) {
                       clicked[key] = true;
+                      if (path.indexOf('brands') < 0) pointsDone = true;
                       try { el.scrollIntoView({block:'center'}); } catch (e) {}
                       fire(el);
                     }
+                  }
+                  if (pointsDone && !armed && finalCount < 3 && path.indexOf('brands') < 0) {
+                    var fb = bestMatch(function(t){ return finalCount === 0 ? FINAL1.test(t) : FINAL2.test(t) || FINAL1.test(t); }, 14);
+                    if (fb) arm(fb);
                   }
                 } catch (e) {}
                 setTimeout(function(){ tick(n + 1); }, 800);
@@ -1723,15 +1750,18 @@ private val VATON_EXCHANGE_JS = """
                 var p = el('div', 'position:fixed;left:8px;right:8px;bottom:8px;z-index:2147483646;background:rgba(20,20,31,.96);color:#fff;border:1px solid #d4a843;border-radius:14px;padding:10px 12px;font-family:sans-serif;font-size:12px;line-height:1.5;box-shadow:0 6px 24px rgba(0,0,0,.5);max-height:45vh;overflow:auto;');
                 p.id = 'gw-ex-panel';
                 var head = el('div', 'font-weight:800;color:#d4a843;font-size:13px;', '交換：' + J.brand + ' ' + numText(J.points) + 'ポイント');
-                var note = el('div', 'opacity:.85;margin-top:2px;', '自動で選ぶのはここまで。最後の「交換」ボタンはご自分で押してください。');
+                var note = el('div', 'opacity:.85;margin-top:2px;', 'ブランドとポイントを選び、最後の交換ボタンも自動で押します。');
+                var status = el('div', 'color:#ffd36b;font-weight:800;margin-top:4px;', ''); status.id = 'gw-ex-status';
                 var list = el('div', 'margin-top:6px;word-break:break-all;');
                 var bar = el('div', '');
                 var bGet = el('button', BTN + 'background:#d4a843;color:#000;', 'コードを取得');
                 var bCopy = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'コピー');
                 var bShare = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'メモに保存');
                 var bEnd = el('button', BTN + 'background:none;color:#aaa;border:1px solid #555;', '終了');
-                [bGet, bCopy, bShare, bEnd].forEach(function(b){ b.type = 'button'; bar.appendChild(b); });
-                p.appendChild(head); p.appendChild(note); p.appendChild(list); p.appendChild(bar);
+                var bStop = el('button', BTN + 'background:#e0443a;color:#fff;display:none;', '止める'); bStop.id = 'gw-ex-stop';
+                bStop.onclick = function(){ stopped = true; bStop.style.display = 'none'; var s2 = document.getElementById('gw-ex-status'); if (s2) s2.textContent = '自動を止めました。続きはご自分で押してください'; };
+                [bStop, bGet, bCopy, bShare, bEnd].forEach(function(b){ b.type = 'button'; bar.appendChild(b); });
+                p.appendChild(head); p.appendChild(note); p.appendChild(status); p.appendChild(list); p.appendChild(bar);
                 document.body.appendChild(p);
                 function all(){ try { return JSON.parse(G.getExchangeResults()); } catch (e) { return []; } }
                 function show(){
