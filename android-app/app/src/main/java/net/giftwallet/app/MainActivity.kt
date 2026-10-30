@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var pendingCsvText: String? = null
     private var csvSyncInFlight = false
+    private var csvSyncSilent = false
     private val chargeQueue: ArrayDeque<String> = ArrayDeque()
     private var currentChargeUrl: String? = null
     private var chargeBusy = false
@@ -557,20 +558,23 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun notifyCsvLoginRequired() {
             runOnUiThread {
+                val silent = csvSyncSilent
+                csvSyncSilent = false
                 finishSyncUi()
                 Toast.makeText(
                     this@MainActivity,
                     "ギフトウォレットにログインしてください",
                     Toast.LENGTH_LONG
                 ).show()
-                // Show the vaton page so the user can log in (no auto sync hash).
-                webView.loadUrl("https://wallet.vaton.jp/point/point_logs")
+                // Manual 更新 only: show the vaton page so the user can log in.
+                if (!silent) webView.loadUrl("https://wallet.vaton.jp/point/point_logs")
             }
         }
 
         @JavascriptInterface
         fun notifyCsvSyncFailed(message: String) {
             runOnUiThread {
+                csvSyncSilent = false
                 finishSyncUi()
                 val msg = message.ifBlank { "CSVの自動取得に失敗しました" }
                 Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
@@ -579,7 +583,12 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun startGiftWalletCsvSync() {
-            runOnUiThread { startCsvSync() }
+            runOnUiThread { csvSyncSilent = false; startCsvSync() }
+        }
+
+        @JavascriptInterface
+        fun startGiftWalletCsvSyncAuto() {
+            runOnUiThread { if (!csvSyncInFlight) { csvSyncSilent = true; startCsvSync() } }
         }
 
         @JavascriptInterface

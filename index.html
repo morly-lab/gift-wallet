@@ -519,6 +519,20 @@ tr{cursor:pointer;}
     try{window.GiftWallet.startGiftWalletCsvSync();}catch(e){}
     setTimeout(function(){setBusy(false);var o=document.getElementById('gwSyncOverlay');if(o)o.remove();},65000);
   };
+  function autoOk(){try{if(typeof window.GiftWallet.startGiftWalletCsvSyncAuto!=='function')return false;var v=String(window.GiftWallet.getAppVersion()).replace(/^v/,'').split('.').map(Number);var a=v[0]||0,b=v[1]||0,c=v[2]||0;return a>1||(a===1&&(b>4||(b===4&&c>=5)));}catch(e){return false;}}
+  function autoSync(){
+    try{
+      if(!autoOk()||busy)return;
+      var k='gwAutoCsvAt',now=Date.now(),last=Number(sessionStorage.getItem(k)||0);
+      if(now-last<180000)return;
+      sessionStorage.setItem(k,String(now));
+      setBusy(true);window.gwSyncOverlay(true);
+      window.GiftWallet.startGiftWalletCsvSyncAuto();
+      setTimeout(function(){setBusy(false);var o=document.getElementById('gwSyncOverlay');if(o)o.remove();},65000);
+    }catch(e){}
+  }
+  function schedAuto(){setTimeout(autoSync,1800);}
+  if(document.readyState==='complete')schedAuto();else window.addEventListener('load',schedAuto);
   window.gwMakeSyncBtn=function(){
     if(!hasBridge())return null;
     var b=document.createElement('button');b.type='button';b.className='gw-csv-mini';

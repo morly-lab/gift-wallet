@@ -12,6 +12,6 @@ tmp="$(mktemp -d)"
   --ks-pass pass:giftwallet-release --key-pass pass:giftwallet-release \
   --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
   --out "$OUT" "$tmp/aligned.apk"
-cp -f "$OUT" "$ROOT/dist/gift-wallet-1.4.4.apk"
+cp -f "$OUT" "$ROOT/dist/gift-wallet-1.4.5.apk"
 "$APKSIGNER" verify --verbose "$OUT"
 echo "Signed -> $OUT"
