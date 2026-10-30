@@ -37,6 +37,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private var syncWebView: WebView? = null
     private lateinit var prefs: android.content.SharedPreferences
     private val syncHandler = Handler(Looper.getMainLooper())
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -76,7 +77,8 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().remove(KEY_SPLASH_DONE).apply()
         }
         webView = findViewById(R.id.webView)
-        setupWebView()
+        setupWebView(webView)
+        setupSyncWebView()
 
         // Cold start / process recreate: always show splash (no persistent skip)
         webView.loadUrl(HOME_URL)
@@ -103,11 +105,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun setupWebView() {
+    private fun setupWebView(wv: WebView) {
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
 
-        webView.settings.apply {
+        wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
@@ -124,13 +126,13 @@ class MainActivity : AppCompatActivity() {
             allowContentAccess = true
         }
 
-        webView.addJavascriptInterface(GiftWalletBridge(), "GiftWallet")
+        wv.addJavascriptInterface(GiftWalletBridge(), "GiftWallet")
 
-        webView.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+        wv.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             handleDownload(url, userAgent, contentDisposition, mimeType)
         })
 
-        webView.webChromeClient = object : WebChromeClient() {
+        wv.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -169,7 +171,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        webView.webViewClient = object : WebViewClient() {
+        wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest
@@ -252,17 +254,54 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupSyncWebView() {
+        val container = webView.parent as android.view.ViewGroup
+        val sw = WebView(this)
+        sw.alpha = 0f
+        sw.isClickable = false
+        sw.isFocusable = false
+        container.addView(
+            sw, 0,
+            android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        setupWebView(sw)
+        syncWebView = sw
+    }
+
+    private fun setSyncOverlay(show: Boolean) {
+        webView.evaluateJavascript(
+            "(function(){try{if(window.gwSyncOverlay)window.gwSyncOverlay(" + (if (show) "true" else "false") + ");}catch(e){}})();",
+            null
+        )
+    }
+
+    private fun finishSyncUi() {
+        csvSyncInFlight = false
+        syncWebView?.loadUrl("about:blank")
+        setSyncOverlay(false)
+    }
+
     private fun startCsvSync() {
         if (csvSyncInFlight) return
         csvSyncInFlight = true
-        webView.loadUrl(POINT_LOGS_AUTO_URL)
+        setSyncOverlay(true)
+        // Hidden WebView does the vaton download in the background; the visible page stays on home.
+        syncWebView?.loadUrl(POINT_LOGS_AUTO_URL) ?: webView.loadUrl(POINT_LOGS_AUTO_URL)
         // Safety reset if download never arrives
-        syncHandler.postDelayed({ csvSyncInFlight = false }, 60_000L)
+        syncHandler.postDelayed({
+            if (csvSyncInFlight) {
+                finishSyncUi()
+                Toast.makeText(this, "更新に時間がかかっています。もう一度お試しください", Toast.LENGTH_LONG).show()
+            }
+        }, 60_000L)
     }
 
     private fun markCsvSynced() {
         prefs.edit().putLong(KEY_LAST_CSV_SYNC_MS, System.currentTimeMillis()).apply()
-        csvSyncInFlight = false
+        finishSyncUi()
     }
 
     private fun importCsvText(text: String, @Suppress("UNUSED_PARAMETER") filename: String) {
@@ -503,7 +542,7 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "CSVの読込に失敗しました", Toast.LENGTH_SHORT).show()
-                    csvSyncInFlight = false
+                    finishSyncUi()
                 }
             }
         }
@@ -518,22 +557,23 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun notifyCsvLoginRequired() {
             runOnUiThread {
-                csvSyncInFlight = false
+                finishSyncUi()
                 Toast.makeText(
                     this@MainActivity,
                     "ギフトウォレットにログインしてください",
                     Toast.LENGTH_LONG
                 ).show()
+                // Show the vaton page so the user can log in (no auto sync hash).
+                webView.loadUrl("https://wallet.vaton.jp/point/point_logs")
             }
         }
 
         @JavascriptInterface
         fun notifyCsvSyncFailed(message: String) {
             runOnUiThread {
-                csvSyncInFlight = false
+                finishSyncUi()
                 val msg = message.ifBlank { "CSVの自動取得に失敗しました" }
                 Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                webView.loadUrl(HOME_URL_NOSPLASH)
             }
         }
 

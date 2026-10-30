@@ -498,11 +498,23 @@ tr{cursor:pointer;}
   function hasBridge(){try{if(!(window.GiftWallet&&typeof window.GiftWallet.startGiftWalletCsvSync==='function'))return false;var v=String(window.GiftWallet.getAppVersion?window.GiftWallet.getAppVersion():'').replace(/^v/,'').split('.').map(Number);var a=v[0]||0,b=v[1]||0,c=v[2]||0;return a>1||(a===1&&(b>4||(b===4&&c>=3)));}catch(e){return false;}}
   var busy=false;
   function setBusy(on){busy=on;document.querySelectorAll('.gw-csv-mini').forEach(function(b){b.disabled=on;b.style.opacity=on?'.6':'';var l=b.querySelector('.gw-csv-lbl');if(l)l.textContent=on?'取得中':'更新';});}
+  function bgSync(){try{var v=String(window.GiftWallet.getAppVersion()).replace(/^v/,'').split('.').map(Number);var a=v[0]||0,b=v[1]||0,c=v[2]||0;return a>1||(a===1&&(b>4||(b===4&&c>=4)));}catch(e){return false;}}
+  window.gwSyncOverlay=function(show){
+    var o=document.getElementById('gwSyncOverlay');
+    if(!show){if(o)o.remove();setBusy(false);return;}
+    if(o)return;
+    o=document.createElement('div');o.id='gwSyncOverlay';
+    o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;');
+    o.innerHTML='<style>@keyframes gwspin{to{transform:rotate(360deg)}}</style><div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 30px;text-align:center;color:#fff;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="width:34px;height:34px;margin:0 auto 12px;border:3px solid rgba(212,168,67,.3);border-top-color:var(--gold);border-radius:50%;animation:gwspin 1s linear infinite;"></div><div style="font-size:16px;font-weight:800;color:var(--gold);">更新中…</div><div style="font-size:12px;margin-top:6px;opacity:.8;">少しお待ちください</div></div>';
+    document.body.appendChild(o);
+  };
   window.gwStartCsvSync=function(){
     if(busy||!hasBridge())return;
     setBusy(true);
+    var bg=bgSync();
+    if(bg)window.gwSyncOverlay(true);
     try{window.GiftWallet.startGiftWalletCsvSync();}catch(e){}
-    setTimeout(function(){setBusy(false);},60000);
+    setTimeout(function(){setBusy(false);var o=document.getElementById('gwSyncOverlay');if(o)o.remove();},65000);
   };
   window.gwMakeSyncBtn=function(){
     if(!hasBridge())return null;
