@@ -255,6 +255,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var exchangeHiddenRunning = false
+
+    private fun webCall(fn: String, args: String) {
+        webView.evaluateJavascript(
+            "(function(){try{if(window." + fn + ")window." + fn + "(" + args + ");}catch(e){}})();", null
+        )
+    }
+
+    private fun beginExchange(brand: String, points: String, hidden: Boolean) {
+        val job = JSONObject().put("brand", brand).put("points", points)
+            .put("at", System.currentTimeMillis()).put("hidden", hidden)
+        prefs.edit().putString("exchange_job", job.toString()).apply()
+        if (hidden) {
+            exchangeHiddenRunning = true
+            syncWebView?.evaluateJavascript("window.__gwExStop=false;", null)
+            webCall("gwExOverlay", JSONObject.quote("交換の準備をしています…"))
+            syncWebView?.loadUrl("https://wallet.vaton.jp/point/brands")
+            syncHandler.postDelayed({
+                if (exchangeHiddenRunning) {
+                    endHiddenExchange(keepJob = true)
+                    webCall("gwExFail", JSONObject.quote("時間がかかっています") + "," + JSONObject.quote(brand) + "," + JSONObject.quote(points))
+                }
+            }, 150_000L)
+        } else {
+            webView.loadUrl("https://wallet.vaton.jp/point/brands")
+        }
+    }
+
+    private fun endHiddenExchange(keepJob: Boolean = false) {
+        exchangeHiddenRunning = false
+        syncWebView?.evaluateJavascript("window.__gwExStop=true;", null)
+        syncWebView?.loadUrl("about:blank")
+        if (!keepJob) prefs.edit().remove("exchange_job").apply()
+        webCall("gwExOverlay", "null")
+    }
+
     private fun setupSyncWebView() {
         val container = webView.parent as android.view.ViewGroup
         val sw = WebView(this)
@@ -607,10 +643,41 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun startExchange(brand: String, points: String) {
+            runOnUiThread { beginExchange(brand, points, true) }
+        }
+
+        @JavascriptInterface
+        fun startExchangeVisible(brand: String, points: String) {
+            runOnUiThread { beginExchange(brand, points, false) }
+        }
+
+        @JavascriptInterface
+        fun stopExchange() {
+            runOnUiThread { endHiddenExchange() }
+        }
+
+        @JavascriptInterface
+        fun exchangeProgress(msg: String) {
+            runOnUiThread { webCall("gwExOverlay", JSONObject.quote(msg)) }
+        }
+
+        @JavascriptInterface
+        fun exchangeDone(json: String) {
             runOnUiThread {
-                val job = JSONObject().put("brand", brand).put("points", points).put("at", System.currentTimeMillis())
-                prefs.edit().putString("exchange_job", job.toString()).apply()
-                webView.loadUrl("https://wallet.vaton.jp/point/brands")
+                val job = try { JSONObject(prefs.getString("exchange_job", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+                val brand = job.optString("brand"); val pts = job.optString("points")
+                endHiddenExchange()
+                webCall("gwExResult", json + "," + JSONObject.quote(brand) + "," + JSONObject.quote(pts))
+            }
+        }
+
+        @JavascriptInterface
+        fun exchangeFailed(msg: String) {
+            runOnUiThread {
+                val job = try { JSONObject(prefs.getString("exchange_job", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+                val brand = job.optString("brand"); val pts = job.optString("points")
+                endHiddenExchange(keepJob = true)
+                webCall("gwExFail", JSONObject.quote(msg) + "," + JSONObject.quote(brand) + "," + JSONObject.quote(pts))
             }
         }
 
@@ -1626,7 +1693,6 @@ private val VATON_BALANCE_JS = """
 private val VATON_EXCHANGE_JS = """
             (function(){
               if (window.__gwEx) return;
-              window.__gwEx = true;
               var G = window.GiftWallet;
               if (!G || !G.getExchangeJob) return;
               var raw = '';
@@ -1637,14 +1703,24 @@ private val VATON_EXCHANGE_JS = """
               if (!J) return;
               if (location.hash && location.hash.indexOf('gw-auto-csv') >= 0) return;
               if (!J.at || Date.now() - J.at > 1800000) { try { G.clearExchangeJob(); } catch (e) {} return; }
-              var KEYS = { 'Amazon': ['Amazon','アマゾン'], 'au PAY': ['au PAY','auPAY','au Pay'], 'マジカ': ['majica','マジカ'], 'WAON': ['WAON','ワオン'] };
-              var keys = KEYS[J.brand] || [J.brand];
+              window.__gwEx = true;
+              var HID = !!J.hidden;
+              var KEYS = { 'Amazon': ['amazon','アマゾン'], 'au PAY': ['au pay','aupay'], 'マジカ': ['majica','マジカ'], 'WAON': ['waon','ワオン'] };
+              var keys = KEYS[J.brand] || [String(J.brand).toLowerCase()];
               var NG = /交換する|交換を確定|確定|購入|申し込|はい|OK|同意して/;
-              var clicked = {};
-              var stopped = false, armed = null, finalCount = 0, pointsDone = false;
-              var FINAL1 = /^(この内容で)?交換(する|を確定する?|を実行する?|確定|実行)?$|^交換(する|を確定する?|を実行する?)/;
+              var FINAL1 = /^(この内容で)?交換(する|を確定する?|を実行する?|確定|実行)?${'$'}|^交換(する|を確定する?|を実行する?)/;
               var FINAL2 = /^(はい|OK|確定|交換する|交換を確定する?)${'$'}/;
+              var ST = {};
+              try { ST = JSON.parse(sessionStorage.getItem('gwExS') || '{}'); } catch (e) {}
+              function save(){ try { sessionStorage.setItem('gwExS', JSON.stringify(ST)); } catch (e) {} }
+              var clicked = {};
+              var armed = false;
+              var finished = false;
 
+              function stopped(){ return !!window.__gwExStop; }
+              function say(msg){
+                try { if (HID) G.exchangeProgress(msg); else { var st = document.getElementById('gw-ex-status'); if (st) st.textContent = msg; } } catch (e) {}
+              }
               function fire(el){
                 try {
                   ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){
@@ -1653,15 +1729,10 @@ private val VATON_EXCHANGE_JS = """
                 } catch (e) { try { el.click(); } catch (e2) {} }
               }
               function numText(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-              function clickables(){
-                return Array.prototype.slice.call(document.querySelectorAll('a,button,li,div[role="button"],[onclick],img,div,p,span'));
-              }
-              function textOf(el){
-                var t = (el.innerText || el.alt || el.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim();
-                return t;
-              }
+              function textOf(el){ return (el.innerText || el.alt || el.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim(); }
               function bestMatch(test, maxLen){
-                var all = clickables(), best = null, bestLen = 1e9;
+                var all = document.querySelectorAll('a,button,li,div[role="button"],[onclick],img,div,p,span');
+                var best = null, bestLen = 1e9;
                 for (var i = 0; i < all.length; i++) {
                   var el = all[i];
                   if (el.closest && el.closest('#gw-ex-panel')) continue;
@@ -1672,96 +1743,113 @@ private val VATON_EXCHANGE_JS = """
                 }
                 return best;
               }
-
+              var BAD = /twitter|facebook|instagram|line\.me|apple\.com|play\.google|youtube|vaton|google/;
+              function collect(){
+                var out = [];
+                var as = document.querySelectorAll('a[href]');
+                for (var i = 0; i < as.length; i++) {
+                  var h = as[i].href || '';
+                  if (/^https?:\/\//.test(h) && !BAD.test(h) && out.indexOf(h) < 0) out.push(h);
+                }
+                var txt = document.body.innerText || '';
+                (txt.match(/https?:\/\/[^\s"'<>]+/g) || []).forEach(function(u){ if (!BAD.test(u) && out.indexOf(u) < 0) out.push(u); });
+                (txt.match(/\b[A-Z0-9]{4}(?:-[A-Z0-9]{4}){2,5}\b/g) || []).forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
+                (txt.match(/(?<![0-9])[0-9]{12,20}(?![0-9])/g) || []).forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
+                return out.slice(0, 8);
+              }
+              function fail(msg){
+                if (finished) return; finished = true;
+                try { if (HID) G.exchangeFailed(msg); else say(msg); } catch (e) {}
+              }
+              function watch(k){
+                if (finished || stopped()) return;
+                var c = collect();
+                if (c.length) {
+                  finished = true;
+                  var items = c.map(function(x){ return J.brand + ' ' + numText(J.points) + 'pt\n' + x; });
+                  items.forEach(function(x){ try { G.saveExchangeResult(x); } catch (e) {} });
+                  ST = {}; save();
+                  if (HID) { try { G.exchangeDone(JSON.stringify(c)); } catch (e) {} }
+                  else say(c.length + '件を保存しました。コピーやメモ保存ができます');
+                  return;
+                }
+                if (k > 30) { fail('交換を押しましたが、コードやリンクが見つかりませんでした'); return; }
+                setTimeout(function(){ watch(k + 1); }, 1000);
+              }
               function arm(btn){
-                armed = btn; var left = 3;
-                var st = document.getElementById('gw-ex-status');
-                var stop = document.getElementById('gw-ex-stop');
-                if (stop) stop.style.display = 'inline-block';
+                armed = true; var left = 3;
                 (function cd(){
-                  if (stopped) return;
-                  if (document.getElementById('gw-ex-status')) document.getElementById('gw-ex-status').textContent = left + '秒後に「' + textOf(btn) + '」を自動で押します';
+                  if (stopped()) return;
                   if (left <= 0) {
-                    fire(btn); finalCount++;
-                    if (document.getElementById('gw-ex-status')) document.getElementById('gw-ex-status').textContent = '「' + textOf(btn) + '」を押しました。結果が出たら「コードを取得」を押してね';
-                    if (document.getElementById('gw-ex-stop')) document.getElementById('gw-ex-stop').style.display = 'none';
-                    setTimeout(function(){ armed = null; }, 2500);
+                    fire(btn); ST.finalCount = (ST.finalCount || 0) + 1; save();
+                    say('「' + textOf(btn) + '」を押しました。結果を待っています…');
+                    var sb = document.getElementById('gw-ex-stop'); if (sb) sb.style.display = 'none';
+                    setTimeout(function(){ armed = false; }, 2500);
+                    watch(0);
                     return;
                   }
+                  say(left + '秒後に「' + textOf(btn) + '」を自動で押します');
+                  var sb2 = document.getElementById('gw-ex-stop'); if (sb2) sb2.style.display = 'inline-block';
                   left--; setTimeout(cd, 1000);
                 })();
               }
               function tick(n){
-                if (n > 100 || stopped) return;
+                if (finished || stopped()) return;
+                if (n > 110) { fail('交換画面で先に進めませんでした'); return; }
                 try {
                   var path = location.pathname;
-                  var key = path + '|' + (path.indexOf('brands') >= 0 ? 'b' : 'o');
-                  if (!clicked[key]) {
+                  var onBrands = path.indexOf('brands') >= 0;
+                  var key = path + '|' + (onBrands ? 'b' : 'o');
+                  if (!clicked[key] && !armed) {
                     var el;
-                    if (path.indexOf('brands') >= 0) {
+                    if (onBrands) {
                       el = bestMatch(function(t){
-                        for (var k = 0; k < keys.length; k++) if (t.indexOf(keys[k]) >= 0) return true;
+                        var l = t.toLowerCase();
+                        for (var k = 0; k < keys.length; k++) if (l.indexOf(keys[k]) >= 0) return true;
                         return false;
                       }, 40);
-                    } else {
+                      if (el) say(J.brand + 'を選んでいます…');
+                    } else if (!ST.pointsDone) {
                       var pt = numText(J.points), pr = String(J.points);
                       el = bestMatch(function(t){
                         if (NG.test(t)) return false;
                         return t.replace(/,/g,'').replace(/ポイント|pt|円/g,'').trim() === pr ||
                                t.indexOf(pt + 'ポイント') >= 0 || t.indexOf(pt + 'pt') >= 0 || t.indexOf(pt + '円') >= 0;
                       }, 30);
+                      if (el) { ST.pointsDone = true; save(); say(numText(J.points) + 'ポイントを選んでいます…'); }
                     }
                     if (el) {
                       clicked[key] = true;
-                      if (path.indexOf('brands') < 0) pointsDone = true;
                       try { el.scrollIntoView({block:'center'}); } catch (e) {}
                       fire(el);
                     }
                   }
-                  if (pointsDone && !armed && finalCount < 3 && path.indexOf('brands') < 0) {
-                    var fb = bestMatch(function(t){ return finalCount === 0 ? FINAL1.test(t) : FINAL2.test(t) || FINAL1.test(t); }, 14);
+                  if (ST.pointsDone && !armed && (ST.finalCount || 0) < 3 && !onBrands) {
+                    var fb = bestMatch(function(t){ return (ST.finalCount || 0) === 0 ? FINAL1.test(t) : (FINAL2.test(t) || FINAL1.test(t)); }, 14);
                     if (fb) arm(fb);
                   }
                 } catch (e) {}
                 setTimeout(function(){ tick(n + 1); }, 800);
               }
 
-              function collect(){
-                var out = [];
-                var as = document.querySelectorAll('a[href]');
-                for (var i = 0; i < as.length; i++) {
-                  var h = as[i].href || '';
-                  if (/^https?:\/\//.test(h) && h.indexOf('wallet.vaton.jp') < 0 && h.indexOf('google') < 0 && out.indexOf(h) < 0) out.push(h);
-                }
-                var txt = document.body.innerText || '';
-                var urls = txt.match(/https?:\/\/[^\s"'<>]+/g) || [];
-                urls.forEach(function(u){ if (u.indexOf('wallet.vaton.jp') < 0 && out.indexOf(u) < 0) out.push(u); });
-                var codes = txt.match(/\b[A-Z0-9]{4}(?:-[A-Z0-9]{4}){2,5}\b/g) || [];
-                codes.forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
-                var nums = txt.match(/(?<![0-9])[0-9]{12,20}(?![0-9])/g) || [];
-                nums.forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
-                return out;
-              }
-
               function el(tag, css, html){ var e = document.createElement(tag); if (css) e.style.cssText = css; if (html) e.innerHTML = html; return e; }
               var BTN = 'border:none;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;margin:3px 3px 0 0;';
               function build(){
-                if (document.getElementById('gw-ex-panel')) return;
+                if (HID || document.getElementById('gw-ex-panel')) return;
                 var p = el('div', 'position:fixed;left:8px;right:8px;bottom:8px;z-index:2147483646;background:rgba(20,20,31,.96);color:#fff;border:1px solid #d4a843;border-radius:14px;padding:10px 12px;font-family:sans-serif;font-size:12px;line-height:1.5;box-shadow:0 6px 24px rgba(0,0,0,.5);max-height:45vh;overflow:auto;');
                 p.id = 'gw-ex-panel';
                 var head = el('div', 'font-weight:800;color:#d4a843;font-size:13px;', '交換：' + J.brand + ' ' + numText(J.points) + 'ポイント');
-                var note = el('div', 'opacity:.85;margin-top:2px;', 'ブランドとポイントを選び、最後の交換ボタンも自動で押します。');
                 var status = el('div', 'color:#ffd36b;font-weight:800;margin-top:4px;', ''); status.id = 'gw-ex-status';
                 var list = el('div', 'margin-top:6px;word-break:break-all;');
                 var bar = el('div', '');
+                var bStop = el('button', BTN + 'background:#e0443a;color:#fff;display:none;', '止める'); bStop.id = 'gw-ex-stop';
+                bStop.onclick = function(){ window.__gwExStop = true; bStop.style.display = 'none'; say('自動を止めました。続きはご自分で押してください'); };
                 var bGet = el('button', BTN + 'background:#d4a843;color:#000;', 'コードを取得');
                 var bCopy = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'コピー');
                 var bShare = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'メモに保存');
                 var bEnd = el('button', BTN + 'background:none;color:#aaa;border:1px solid #555;', '終了');
-                var bStop = el('button', BTN + 'background:#e0443a;color:#fff;display:none;', '止める'); bStop.id = 'gw-ex-stop';
-                bStop.onclick = function(){ stopped = true; bStop.style.display = 'none'; var s2 = document.getElementById('gw-ex-status'); if (s2) s2.textContent = '自動を止めました。続きはご自分で押してください'; };
                 [bStop, bGet, bCopy, bShare, bEnd].forEach(function(b){ b.type = 'button'; bar.appendChild(b); });
-                p.appendChild(head); p.appendChild(note); p.appendChild(status); p.appendChild(list); p.appendChild(bar);
+                p.appendChild(head); p.appendChild(status); p.appendChild(list); p.appendChild(bar);
                 document.body.appendChild(p);
                 function all(){ try { return JSON.parse(G.getExchangeResults()); } catch (e) { return []; } }
                 function show(){
@@ -1770,7 +1858,7 @@ private val VATON_EXCHANGE_JS = """
                 }
                 bGet.onclick = function(){
                   var c = collect();
-                  if (!c.length) { G.showToast('まだコードやリンクが見つかりません。交換が終わった画面で押してください'); return; }
+                  if (!c.length) { G.showToast('まだコードやリンクが見つかりません'); return; }
                   c.forEach(function(x){ G.saveExchangeResult(J.brand + ' ' + numText(J.points) + 'pt\n' + x); });
                   show(); G.showToast(c.length + '件を保存しました');
                 };
