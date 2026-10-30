@@ -343,8 +343,11 @@ tr{cursor:pointer;}
 .smenu-fixed-label{font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.03em;}
 .smenu-fixed-btn{position:relative;min-height:48px;min-width:48px;}
 .smenu-fixed-btn.active .smenu-fixed-label{color:var(--gold);}
-.smenu-fixed-btn.active::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 3px 3px;background:var(--gold);}
-.smenu-fixed-btn.active{background:rgba(212,168,67,.10);}
+.smenu-fixed{position:relative;}
+.smenu-fixed>*:not(.smenu-pill){position:relative;z-index:1;}
+.smenu-pill{position:absolute;left:0;top:2px;height:calc(100% - 8px);width:60px;border-radius:999px;background:rgba(212,168,67,.18);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:inset 0 1px 0 rgba(255,255,255,.12);pointer-events:none;z-index:0;opacity:0;transform:translateX(0);transition:transform .32s cubic-bezier(.25,1,.5,1),width .32s cubic-bezier(.25,1,.5,1),opacity .2s;will-change:transform;}
+.smenu-pill.noanim{transition:none;}
+.smenu-fixed-label{transition:color .2s;}
 .smenu-grid-btn{min-height:56px;}
 .smenu-grid-btn.active{border-color:var(--gold);background:rgba(212,168,67,.12);}
 .smenu-grid-btn.active .smenu-grid-label{color:var(--gold);}
@@ -2672,6 +2675,7 @@ function aiQuickSend(text){
 
       <!-- 常時表示エリア（5ボタン） -->
       <div class="smenu-fixed" style="padding-bottom:max(10px,env(safe-area-inset-bottom));">
+        <div class="smenu-pill" id="smenuPill"></div>
         <!-- a. ホーム -->
         <button class="smenu-fixed-btn active" id="tab-calendar" onclick="switchTab('calendar')" data-hint="カレンダー画面に戻ります">
           <span class="smenu-fixed-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></span>
@@ -3112,5 +3116,40 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
 })();
 </script>
 
+<script>
+// ===== 下メニュー: 透明なピルがスライドする動き =====
+(function(){
+  var row=document.querySelector('.smenu-fixed'),pill=document.getElementById('smenuPill');
+  if(!row||!pill)return;
+  var cur=null,timer=null;
+  function items(){return Array.prototype.filter.call(row.children,function(e){return e!==pill;});}
+  function place(el,anim){
+    if(!el){pill.style.opacity='0';return;}
+    var w=Math.max(el.offsetWidth-8,48);
+    var x=el.offsetLeft+(el.offsetWidth-w)/2;
+    if(!anim)pill.classList.add('noanim');
+    pill.style.width=w+'px';pill.style.transform='translateX('+x+'px)';pill.style.opacity='1';
+    if(!anim){void pill.offsetWidth;pill.classList.remove('noanim');}
+    cur=el;
+  }
+  function active(){return document.getElementById('tab-calendar').classList.contains('active')?document.getElementById('tab-calendar'):row.querySelector('.smenu-fixed-btn.active');}
+  function sync(anim){place(active(),anim);}
+  row.addEventListener('click',function(e){
+    var el=e.target;while(el&&el.parentNode!==row)el=el.parentNode;
+    if(!el||el===pill)return;
+    if(el.__gwGo){el.__gwGo=false;return;}
+    e.preventDefault();e.stopPropagation();
+    place(el,true);
+    clearTimeout(timer);
+    timer=setTimeout(function(){el.__gwGo=true;el.click();},230);
+  },true);
+  var cal=document.getElementById('tab-calendar');
+  if(window.MutationObserver&&cal)new MutationObserver(function(){sync(true);}).observe(cal,{attributes:true,attributeFilter:['class']});
+  window.addEventListener('resize',function(){sync(false);});
+  window.addEventListener('load',function(){sync(false);});
+  window.addEventListener('pageshow',function(){sync(false);});
+  sync(false);setTimeout(function(){sync(false);},300);
+})();
+</script>
 </body>
 </html>
