@@ -511,14 +511,14 @@ tr{cursor:pointer;}
     o.innerHTML='<style>@keyframes gwspin{to{transform:rotate(360deg)}}</style><div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 30px;text-align:center;color:#fff;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="width:34px;height:34px;margin:0 auto 12px;border:3px solid rgba(212,168,67,.3);border-top-color:var(--gold);border-radius:50%;animation:gwspin 1s linear infinite;"></div><div style="font-size:16px;font-weight:800;color:var(--gold);">更新中…</div><div style="font-size:12px;margin-top:6px;opacity:.8;">少しお待ちください</div></div>';
     document.body.appendChild(o);
   };
-  window.gwDonePopup=function(msg,sub){
+  window.gwDonePopup=function(msg,sub,ms){
     var old=document.getElementById('gwDonePop');if(old)old.remove();
     var o=document.createElement('div');o.id='gwDonePop';
     o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);');
     o.innerHTML='<style>@keyframes gwPopIn{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}</style><div style="background:#14141f;border:2px solid var(--gold);border-radius:22px;padding:34px 30px;text-align:center;color:#fff;box-shadow:0 10px 40px rgba(0,0,0,.6);animation:gwPopIn .22s ease-out;max-width:86%;"><div style="font-size:44px;line-height:1;color:var(--gold);">✓</div><div style="font-size:24px;font-weight:800;color:var(--gold);margin-top:12px;line-height:1.4;">'+(msg||'更新完了しました！')+'</div>'+(sub?'<div style="font-size:13px;opacity:.85;margin-top:8px;">'+sub+'</div>':'')+'</div>';
     o.onclick=function(){o.remove();};
     document.body.appendChild(o);
-    setTimeout(function(){if(o.parentNode)o.remove();},2200);
+    setTimeout(function(){if(o.parentNode)o.remove();},ms||2200);
   };
   window.gwPastStart=function(){
     if(!(window.GiftWallet&&typeof GiftWallet.startPastCsvSync==='function')){if(typeof showToast==='function')showToast('アプリを最新版にしてください');return;}
@@ -2785,7 +2785,29 @@ function aiQuickSend(text){
 <script>
 // ---------- アプリ更新（直APKではなく案内ページへ） ----------
 const GW_INSTALL_URL = 'https://gift-wallet.pages.dev/install';
+function gwUpdBox(html,id){
+  var old=document.getElementById('gwUpdBox');if(old)old.remove();
+  var o=document.createElement('div');o.id='gwUpdBox';
+  o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:100001;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:24px;');
+  o.innerHTML='<div style="background:#14141f;border:2px solid var(--gold);border-radius:20px;padding:28px 24px;text-align:center;color:#fff;max-width:330px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.6);">'+html+'</div>';
+  document.body.appendChild(o);return o;
+}
+window.gwUpdAsk=function(){
+  var v='';try{v=String(GiftWallet.getAppVersion()||'');}catch(e){}
+  var o=gwUpdBox('<div style="font-size:20px;font-weight:800;color:var(--gold);">アプリを更新します</div><div style="font-size:13px;opacity:.85;margin:10px 0 18px;line-height:1.6;">いまの版 v'+v+'<br>最新版をダウンロードして入れ替えます</div><button type="button" id="gwUpdGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:16px;font-size:17px;font-weight:800;">タップしてダウンロード</button><button type="button" id="gwUpdNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:6px;">やめる</button>');
+  document.getElementById('gwUpdNo').onclick=function(){o.remove();};
+  document.getElementById('gwUpdGo').onclick=function(){
+    gwUpdBox('<div style="font-size:22px;font-weight:800;color:var(--gold);">更新を開始します</div><div id="gwUpdPct" style="font-size:14px;margin-top:12px;opacity:.9;">ダウンロード中… 0%</div><div style="height:8px;background:rgba(255,255,255,.15);border-radius:99px;margin-top:12px;overflow:hidden;"><div id="gwUpdBar" style="height:100%;width:0;background:var(--gold);transition:width .2s;"></div></div>');
+    try{GiftWallet.startInAppUpdate();}catch(e){window.gwUpdFail('');}
+  };
+};
+window.gwUpdProgress=function(p){var a=document.getElementById('gwUpdPct'),b=document.getElementById('gwUpdBar');if(a)a.textContent='ダウンロード中… '+p+'%';if(b)b.style.width=p+'%';};
+window.gwUpdInstalling=function(){var a=document.getElementById('gwUpdPct');if(a)a.textContent='インストール画面で「更新」を押してください';};
+window.gwUpdNeedPerm=function(){var o=gwUpdBox('<div style="font-size:18px;font-weight:800;color:var(--gold);">許可が必要です</div><div style="font-size:13px;margin:10px 0 16px;line-height:1.6;opacity:.9;">開いた画面で「この提供元のアプリを許可」をオンにして、アプリに戻り、もう一度「アプリ更新」を押してください。</div><button type="button" id="gwUpdOk" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:12px;font-size:14px;font-weight:800;">わかった</button>');document.getElementById('gwUpdOk').onclick=function(){o.remove();};};
+window.gwUpdFail=function(c){var o=gwUpdBox('<div style="font-size:18px;font-weight:800;color:#ff8a8a;">更新できませんでした</div><div style="font-size:12px;margin:10px 0 16px;opacity:.8;">通信を確認してもう一度お試しください'+(c?'（'+c+'）':'')+'</div><button type="button" id="gwUpdOk" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:12px;font-size:14px;font-weight:800;">とじる</button>');document.getElementById('gwUpdOk').onclick=function(){o.remove();};};
+window.gwUpdDone=function(v){var b=document.getElementById('gwUpdBox');if(b)b.remove();fillSmenuAppVer();window.gwDonePopup('更新完了しました！','アプリが '+v+' になりました',3500);};
 function requestAppUpdate(){
+  try{ if(window.GiftWallet && typeof window.GiftWallet.startInAppUpdate==='function'){ window.gwUpdAsk(); return; } }catch(e){}
   // リモートの index.html を読む現行APKでも、直APKではなく案内ページへ行く。
   // （ネイティブ橋は次のAPK向けに同様のURLへ揃えてある）
   try{ showToast && showToast('インストール案内を開きます'); }catch(e){}

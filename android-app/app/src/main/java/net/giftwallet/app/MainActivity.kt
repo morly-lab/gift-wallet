@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -193,6 +194,92 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 maybeInjectHelpers(view, url)
                 maybeFlushPendingCsv(url)
+                if (view === webView) maybeShowUpdateDone()
+            }
+        }
+    }
+
+    private fun curVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+    } catch (_: Exception) { "" }
+
+    private fun maybeShowUpdateDone() {
+        val from = prefs.getString("upd_from", null) ?: return
+        val now = curVersion()
+        if (from == now) return
+        prefs.edit().remove("upd_from").apply()
+        Handler(Looper.getMainLooper()).postDelayed({
+            webCall("gwUpdDone", JSONObject.quote("v" + now))
+        }, 1500)
+    }
+
+    private fun startInAppUpdate() {
+        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+            webCall("gwUpdNeedPerm", "")
+            try {
+                startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            } catch (_: Exception) {}
+            return
+        }
+        webCall("gwUpdProgress", "0")
+        ioExecutor.execute {
+            try {
+                val dir = java.io.File(cacheDir, "update").apply { mkdirs() }
+                val f = java.io.File(dir, "gw.apk")
+                if (f.exists()) f.delete()
+                val conn = URL("https://gift-wallet.pages.dev/dist/gift-wallet.apk?t=" + System.currentTimeMillis())
+                    .openConnection() as HttpURLConnection
+                conn.connectTimeout = 15000
+                conn.readTimeout = 30000
+                val total = conn.contentLength
+                var got = 0L
+                var last = -1
+                conn.inputStream.use { ins ->
+                    f.outputStream().use { out ->
+                        val buf = ByteArray(32768)
+                        while (true) {
+                            val n = ins.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            got += n
+                            if (total > 0) {
+                                val pct = (got * 100 / total).toInt()
+                                if (pct != last) {
+                                    last = pct
+                                    runOnUiThread { webCall("gwUpdProgress", pct.toString()) }
+                                }
+                            }
+                        }
+                    }
+                }
+                val head = ByteArray(2)
+                f.inputStream().use { it.read(head) }
+                if (f.length() < 1_000_000 || head[0] != 'P'.code.toByte() || head[1] != 'K'.code.toByte()) {
+                    throw RuntimeException("bad apk")
+                }
+                prefs.edit().putString("upd_from", curVersion()).apply()
+                runOnUiThread {
+                    try {
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            this, "$packageName.fileprovider", f
+                        )
+                        val i = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        webCall("gwUpdInstalling", "")
+                        startActivity(i)
+                    } catch (e: Exception) {
+                        webCall("gwUpdFail", JSONObject.quote(e.javaClass.simpleName))
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { webCall("gwUpdFail", JSONObject.quote(e.javaClass.simpleName)) }
             }
         }
     }
@@ -806,6 +893,11 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "共有を開けませんでした", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+
+        @JavascriptInterface
+        fun startInAppUpdate() {
+            runOnUiThread { this@MainActivity.startInAppUpdate() }
         }
 
         @JavascriptInterface
