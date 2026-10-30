@@ -533,9 +533,9 @@ tr{cursor:pointer;}
   function autoSync(){
     try{
       if(!autoOk()||busy)return;
-      var k='gwAutoCsvAt',now=Date.now(),last=Number(sessionStorage.getItem(k)||0);
-      if(now-last<180000)return;
-      sessionStorage.setItem(k,String(now));
+      var k='gwAutoCsvAt',now=Date.now(),last=Number(localStorage.getItem(k)||0);
+      if(now-last<3600000)return;
+      localStorage.setItem(k,String(now));
       setBusy(true);window.gwSyncOverlay(true);
       window.GiftWallet.startGiftWalletCsvSyncAuto();
       setTimeout(function(){setBusy(false);var o=document.getElementById('gwSyncOverlay');if(o)o.remove();},65000);
