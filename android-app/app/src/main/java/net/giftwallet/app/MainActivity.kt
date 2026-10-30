@@ -730,7 +730,7 @@ class MainActivity : AppCompatActivity() {
                   var btn = document.createElement('a');
                   btn.id = 'gw-back-btn';
                   btn.href = 'https://gift-wallet.pages.dev/?nosplash=1';
-                  btn.textContent = '← ギフトウォレット';
+                  btn.textContent = '← ギフトログ';
                   btn.setAttribute('style', [
                     'position:fixed','left:12px','bottom:18px','z-index:2147483647',
                     'background:#d4a843','color:#111','font-weight:800','font-size:13px',
@@ -1043,7 +1043,7 @@ class MainActivity : AppCompatActivity() {
                   var btn = document.createElement('a');
                   btn.id = 'gw-back-btn';
                   btn.href = 'https://gift-wallet.pages.dev/?nosplash=1';
-                  btn.textContent = '← ギフトウォレット';
+                  btn.textContent = '← ギフトログ';
                   btn.setAttribute('style', [
                     'position:fixed','left:12px','bottom:18px','z-index:2147483647',
                     'background:#d4a843','color:#111','font-weight:800','font-size:13px',
@@ -1129,7 +1129,7 @@ private val VATON_CSV_JS = """
                   var btn = document.createElement('a');
                   btn.id = 'gw-back-btn';
                   btn.href = 'https://gift-wallet.pages.dev/?nosplash=1';
-                  btn.textContent = '← ギフトウォレット';
+                  btn.textContent = '← ギフトログ';
                   btn.setAttribute('style', [
                     'position:fixed','left:12px','bottom:18px','z-index:2147483647',
                     'background:#d4a843','color:#111','font-weight:800','font-size:13px',

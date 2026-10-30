@@ -1,6 +1,6 @@
 {
-  "name": "えらべるPay 収支表",
-  "short_name": "えらべるPay",
+  "name": "ギフトログ",
+  "short_name": "ギフトログ",
   "description": "えらべるPayのチャージ履歴をカレンダーで見える化するツール",
   "start_url": "./index.html",
   "display": "standalone",
