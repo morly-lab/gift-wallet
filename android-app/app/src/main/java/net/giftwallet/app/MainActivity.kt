@@ -1691,6 +1691,20 @@ private val VATON_CSV_JS = """
                     }
                   }
                 }
+                try {
+                  var cb = document.querySelector('[role="combobox"]');
+                  if (cb) {
+                    var same = function(t){ var mm = /(\d+)年\s*(\d+)月/.exec(t || ''); return mm && Number(mm[1]) === Number(w[1]) && Number(mm[2]) === Number(w[2]); };
+                    if (same(cb.textContent)) return true;
+                    var ops = document.querySelectorAll('[role="option"]');
+                    for (var k = 0; k < ops.length; k++) {
+                      if (same(ops[k].textContent)) { ops[k].click(); return false; }
+                    }
+                    if (cb.getAttribute('aria-expanded') !== 'true') {
+                      cb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, view: window }));
+                    }
+                  }
+                } catch (e1) {}
                 return false;
               }
               function diag(){
@@ -1716,7 +1730,7 @@ private val VATON_CSV_JS = """
                 tries = tries || 0;
                 if (applyMonth()) {
                   setTimeout(function(){ pollDownload(Date.now() + 18000); }, 600);
-                } else if (tries < 12) {
+                } else if (tries < 20) {
                   setTimeout(function(){ startPoll(tries + 1); }, 400);
                 } else {
                   clickCloseModal();
