@@ -361,6 +361,7 @@ class MainActivity : AppCompatActivity() {
             url.contains("wallet.vaton.jp") -> {
                 view.evaluateJavascript(VATON_CSV_JS, null)
                 view.evaluateJavascript(VATON_BALANCE_JS, null)
+                view.evaluateJavascript(VATON_EXCHANGE_JS, null)
             }
             url.contains("gift-wallet.pages.dev") -> {
                 view.evaluateJavascript(HOME_INJECT_JS, null)
@@ -601,6 +602,63 @@ class MainActivity : AppCompatActivity() {
                 csvSyncInFlight = false
                 pendingCsvText = null
                 webView.loadUrl(CUSHIN_QUICK_URL)
+            }
+        }
+
+        @JavascriptInterface
+        fun startExchange(brand: String, points: String) {
+            runOnUiThread {
+                val job = JSONObject().put("brand", brand).put("points", points).put("at", System.currentTimeMillis())
+                prefs.edit().putString("exchange_job", job.toString()).apply()
+                webView.loadUrl("https://wallet.vaton.jp/point/brands")
+            }
+        }
+
+        @JavascriptInterface
+        fun getExchangeJob(): String = prefs.getString("exchange_job", "") ?: ""
+
+        @JavascriptInterface
+        fun clearExchangeJob() {
+            prefs.edit().remove("exchange_job").apply()
+        }
+
+        @JavascriptInterface
+        fun saveExchangeResult(text: String) {
+            val t = text.trim()
+            if (t.isEmpty()) return
+            val arr = try { JSONArray(prefs.getString("exchange_results", "[]")) } catch (_: Exception) { JSONArray() }
+            for (i in 0 until arr.length()) if (arr.optString(i) == t) return
+            arr.put(t)
+            prefs.edit().putString("exchange_results", arr.toString()).apply()
+        }
+
+        @JavascriptInterface
+        fun getExchangeResults(): String = prefs.getString("exchange_results", "[]") ?: "[]"
+
+        @JavascriptInterface
+        fun clearExchangeResults() {
+            prefs.edit().remove("exchange_results").apply()
+        }
+
+        @JavascriptInterface
+        fun goHome() {
+            runOnUiThread { webView.loadUrl(HOME_URL_NOSPLASH) }
+        }
+
+        @JavascriptInterface
+        fun shareText(text: String) {
+            val t = text.trim()
+            if (t.isEmpty()) return
+            runOnUiThread {
+                try {
+                    val i = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, t)
+                    }
+                    startActivity(Intent.createChooser(i, "メモに保存・共有").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, "共有を開けませんでした", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
@@ -1563,3 +1621,136 @@ private val VATON_BALANCE_JS = """
         private val CHARGE_AUTO_JS = """(function(){ /* charge auto-tap removed */ })();""".trimIndent()
     }
 }
+
+
+private val VATON_EXCHANGE_JS = """
+            (function(){
+              if (window.__gwEx) return;
+              window.__gwEx = true;
+              var G = window.GiftWallet;
+              if (!G || !G.getExchangeJob) return;
+              var raw = '';
+              try { raw = G.getExchangeJob(); } catch (e) {}
+              if (!raw) return;
+              var J = null;
+              try { J = JSON.parse(raw); } catch (e) {}
+              if (!J) return;
+              if (location.hash && location.hash.indexOf('gw-auto-csv') >= 0) return;
+              if (!J.at || Date.now() - J.at > 1800000) { try { G.clearExchangeJob(); } catch (e) {} return; }
+              var KEYS = { 'Amazon': ['Amazon','アマゾン'], 'au PAY': ['au PAY','auPAY','au Pay'], 'マジカ': ['majica','マジカ'], 'WAON': ['WAON','ワオン'] };
+              var keys = KEYS[J.brand] || [J.brand];
+              var NG = /交換する|交換を確定|確定|購入|申し込|はい|OK|同意して/;
+              var clicked = {};
+
+              function fire(el){
+                try {
+                  ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){
+                    el.dispatchEvent(new MouseEvent(t, { bubbles:true, cancelable:true, view:window }));
+                  });
+                } catch (e) { try { el.click(); } catch (e2) {} }
+              }
+              function numText(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+              function clickables(){
+                return Array.prototype.slice.call(document.querySelectorAll('a,button,li,div[role="button"],[onclick],img,div,p,span'));
+              }
+              function textOf(el){
+                var t = (el.innerText || el.alt || el.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim();
+                return t;
+              }
+              function bestMatch(test, maxLen){
+                var all = clickables(), best = null, bestLen = 1e9;
+                for (var i = 0; i < all.length; i++) {
+                  var el = all[i];
+                  if (el.closest && el.closest('#gw-ex-panel')) continue;
+                  var t = textOf(el);
+                  if (!t || t.length > maxLen) continue;
+                  if (!test(t)) continue;
+                  if (t.length < bestLen) { best = el; bestLen = t.length; }
+                }
+                return best;
+              }
+              function tick(n){
+                if (n > 30) return;
+                try {
+                  var path = location.pathname;
+                  var key = path + '|' + (path.indexOf('brands') >= 0 ? 'b' : 'o');
+                  if (!clicked[key]) {
+                    var el;
+                    if (path.indexOf('brands') >= 0) {
+                      el = bestMatch(function(t){
+                        for (var k = 0; k < keys.length; k++) if (t.indexOf(keys[k]) >= 0) return true;
+                        return false;
+                      }, 40);
+                    } else {
+                      var pt = numText(J.points), pr = String(J.points);
+                      el = bestMatch(function(t){
+                        if (NG.test(t)) return false;
+                        return t.replace(/,/g,'').replace(/ポイント|pt|円/g,'').trim() === pr ||
+                               t.indexOf(pt + 'ポイント') >= 0 || t.indexOf(pt + 'pt') >= 0 || t.indexOf(pt + '円') >= 0;
+                      }, 30);
+                    }
+                    if (el) {
+                      clicked[key] = true;
+                      try { el.scrollIntoView({block:'center'}); } catch (e) {}
+                      fire(el);
+                    }
+                  }
+                } catch (e) {}
+                setTimeout(function(){ tick(n + 1); }, 800);
+              }
+
+              function collect(){
+                var out = [];
+                var as = document.querySelectorAll('a[href]');
+                for (var i = 0; i < as.length; i++) {
+                  var h = as[i].href || '';
+                  if (/^https?:\/\//.test(h) && h.indexOf('wallet.vaton.jp') < 0 && h.indexOf('google') < 0 && out.indexOf(h) < 0) out.push(h);
+                }
+                var txt = document.body.innerText || '';
+                var urls = txt.match(/https?:\/\/[^\s"'<>]+/g) || [];
+                urls.forEach(function(u){ if (u.indexOf('wallet.vaton.jp') < 0 && out.indexOf(u) < 0) out.push(u); });
+                var codes = txt.match(/\b[A-Z0-9]{4}(?:-[A-Z0-9]{4}){2,5}\b/g) || [];
+                codes.forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
+                var nums = txt.match(/(?<![0-9])[0-9]{12,20}(?![0-9])/g) || [];
+                nums.forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
+                return out;
+              }
+
+              function el(tag, css, html){ var e = document.createElement(tag); if (css) e.style.cssText = css; if (html) e.innerHTML = html; return e; }
+              var BTN = 'border:none;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;margin:3px 3px 0 0;';
+              function build(){
+                if (document.getElementById('gw-ex-panel')) return;
+                var p = el('div', 'position:fixed;left:8px;right:8px;bottom:8px;z-index:2147483646;background:rgba(20,20,31,.96);color:#fff;border:1px solid #d4a843;border-radius:14px;padding:10px 12px;font-family:sans-serif;font-size:12px;line-height:1.5;box-shadow:0 6px 24px rgba(0,0,0,.5);max-height:45vh;overflow:auto;');
+                p.id = 'gw-ex-panel';
+                var head = el('div', 'font-weight:800;color:#d4a843;font-size:13px;', '交換：' + J.brand + ' ' + numText(J.points) + 'ポイント');
+                var note = el('div', 'opacity:.85;margin-top:2px;', '自動で選ぶのはここまで。最後の「交換」ボタンはご自分で押してください。');
+                var list = el('div', 'margin-top:6px;word-break:break-all;');
+                var bar = el('div', '');
+                var bGet = el('button', BTN + 'background:#d4a843;color:#000;', 'コードを取得');
+                var bCopy = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'コピー');
+                var bShare = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'メモに保存');
+                var bEnd = el('button', BTN + 'background:none;color:#aaa;border:1px solid #555;', '終了');
+                [bGet, bCopy, bShare, bEnd].forEach(function(b){ b.type = 'button'; bar.appendChild(b); });
+                p.appendChild(head); p.appendChild(note); p.appendChild(list); p.appendChild(bar);
+                document.body.appendChild(p);
+                function all(){ try { return JSON.parse(G.getExchangeResults()); } catch (e) { return []; } }
+                function show(){
+                  var a = all();
+                  list.innerHTML = a.length ? '保存済み ' + a.length + '件<br>' + a.map(function(x){ return x.replace(/</g,'&lt;'); }).join('<br>') : '';
+                }
+                bGet.onclick = function(){
+                  var c = collect();
+                  if (!c.length) { G.showToast('まだコードやリンクが見つかりません。交換が終わった画面で押してください'); return; }
+                  c.forEach(function(x){ G.saveExchangeResult(J.brand + ' ' + numText(J.points) + 'pt\n' + x); });
+                  show(); G.showToast(c.length + '件を保存しました');
+                };
+                bCopy.onclick = function(){ var a = all(); if (!a.length) { G.showToast('保存済みのコードがありません'); return; } G.copyText(a.join('\n\n')); };
+                bShare.onclick = function(){ var a = all(); if (!a.length) { G.showToast('保存済みのコードがありません'); return; } G.shareText(a.join('\n\n')); };
+                bEnd.onclick = function(){ G.clearExchangeJob(); p.remove(); G.goHome(); };
+                show();
+              }
+              function init(){ build(); tick(0); }
+              if (document.body) init(); else document.addEventListener('DOMContentLoaded', init);
+              setInterval(function(){ if (document.body && !document.getElementById('gw-ex-panel')) build(); }, 1500);
+            })();
+        """.trimIndent()

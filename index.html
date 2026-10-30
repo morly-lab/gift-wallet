@@ -2667,6 +2667,10 @@ function aiQuickSend(text){
             <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M7 16v-5M12 16V6M17 16v-8"/></svg></span>
             <span class="smenu-grid-label">分析グラフ</span>
           </button>
+          <button class="smenu-grid-btn" onclick="location.href='./error-userids.html';collapseSwipeMenu()">
+            <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg></span>
+            <span class="smenu-grid-label">エラーID</span>
+          </button>
           <button class="smenu-grid-btn" onclick="goPage('expense');collapseSwipeMenu()">
             <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
             <span class="smenu-grid-label">支出内訳</span>
@@ -2705,11 +2709,11 @@ function aiQuickSend(text){
           <span class="smenu-fixed-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></span>
           <span class="smenu-fixed-label">ホーム</span>
         </button>
-        <!-- b. エラーUSERID -->
-        <a class="smenu-fixed-btn" id="tab-error-userid" href="./error-userids.html" style="text-decoration:none;" data-hint="エラーUSERID一覧を開きます">
-          <span class="smenu-fixed-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg></span>
-          <span class="smenu-fixed-label">エラーID</span>
-        </a>
+        <!-- b. 交換 -->
+        <button class="smenu-fixed-btn" id="tab-exchange" onclick="openExchange()" data-hint="Amazon・au PAY・マジカ・WAONへの交換を始めます">
+          <span class="smenu-fixed-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h12l-3-3"/><path d="M17 17H5l3 3"/></svg></span>
+          <span class="smenu-fixed-label">交換</span>
+        </button>
         <!-- c. Cushin クイック引出（中央・大きめ） — app opens via GiftWallet.openCushinQuick(); never CSV -->
         <a href="https://toklab.app/dashboard/quick-withdraw" target="_self" rel="noopener" data-gw-toklab="1" style="display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;flex:0 0 auto;padding:0 6px;text-decoration:none;" data-hint="toklabのクイック引き出しを開きます">
           <span style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--gold-h),var(--gold));display:flex;align-items:center;justify-content:center;box-shadow:0 3px 14px rgba(150,90,0,.3);margin-top:-18px;font-size:26px;line-height:1;"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#1a1206" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span>
@@ -3168,6 +3172,51 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
   window.addEventListener('load',function(){sync(false);});
   window.addEventListener('pageshow',function(){sync(false);});
   sync(false);setTimeout(function(){sync(false);},300);
+})();
+</script>
+<script>
+// ===== 交換（Amazon / au PAY / マジカ / WAON） =====
+(function(){
+  var BRANDS=[{n:'Amazon',e:'🛒'},{n:'au PAY',e:'💳'},{n:'マジカ',e:'🅼'},{n:'WAON',e:'🟣'}];
+  var POINTS=[500,1000,3000,5000,10000];
+  var sel={brand:'',points:0};
+  function closeX(){var o=document.getElementById('gwExModal');if(o)o.remove();}
+  function shell(inner){
+    closeX();
+    var o=document.createElement('div');o.id='gwExModal';
+    o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99990;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;');
+    o.innerHTML='<div style="background:#14141f;border:1px solid var(--gold);border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));width:100%;max-width:520px;color:#fff;">'+inner+'</div>';
+    o.addEventListener('click',function(e){if(e.target===o)closeX();});
+    document.body.appendChild(o);return o;
+  }
+  var BS='border:1px solid var(--gold);background:transparent;color:#fff;border-radius:12px;padding:14px 8px;font-size:15px;font-weight:800;cursor:pointer;';
+  function step1(){
+    var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:12px;">何に交換しますか？</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+    BRANDS.forEach(function(b,i){h+='<button type="button" data-i="'+i+'" style="'+BS+'">'+b.e+' '+b.n+'</button>';});
+    h+='</div><button type="button" id="gwExCancel" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;margin-top:6px;">閉じる</button>';
+    var o=shell(h);
+    o.querySelectorAll('button[data-i]').forEach(function(b){b.onclick=function(){sel.brand=BRANDS[b.getAttribute('data-i')].n;step2();};});
+    o.querySelector('#gwExCancel').onclick=closeX;
+  }
+  function step2(){
+    var h='<div style="font-size:12px;opacity:.8;">'+sel.brand+'</div><div style="font-size:16px;font-weight:800;color:var(--gold);margin:2px 0 10px;">何ポイント交換しますか？</div>';
+    POINTS.forEach(function(p,i){h+='<label style="display:flex;align-items:center;gap:10px;padding:11px 8px;border-bottom:1px solid rgba(255,255,255,.08);font-size:15px;"><input type="radio" name="gwExPt" value="'+p+'"'+(i===1?' checked':'')+' style="width:20px;height:20px;accent-color:#d4a843;">'+p.toLocaleString()+' ポイント</label>';});
+    h+='<label style="display:flex;align-items:center;gap:10px;padding:11px 8px;font-size:15px;"><input type="radio" name="gwExPt" value="other" style="width:20px;height:20px;accent-color:#d4a843;">その他 <input type="number" id="gwExOther" inputmode="numeric" placeholder="数字" style="flex:1;background:#0d0d16;border:1px solid #444;border-radius:8px;color:#fff;padding:8px;font-size:14px;"></label>';
+    h+='<div style="font-size:11px;opacity:.7;margin:8px 0;">交換画面まで自動で進みます。最後の「交換」ボタンはご自分で押してください。</div>';
+    h+='<button type="button" id="gwExGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:12px;font-size:15px;font-weight:800;cursor:pointer;">交換画面へ進む</button><button type="button" id="gwExBack" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">もどる</button>';
+    var o=shell(h);
+    o.querySelector('#gwExBack').onclick=step1;
+    o.querySelector('#gwExGo').onclick=function(){
+      var r=o.querySelector('input[name=gwExPt]:checked');var v=r?r.value:'';
+      if(v==='other')v=o.querySelector('#gwExOther').value;
+      var n=parseInt(v,10);
+      if(!n||n<=0){if(typeof showToast==='function')showToast('ポイントを選んでください');return;}
+      sel.points=n;
+      if(window.GiftWallet&&typeof window.GiftWallet.startExchange==='function'){closeX();window.GiftWallet.startExchange(sel.brand,String(n));}
+      else{if(typeof showToast==='function')showToast('アプリを最新版にしてください');}
+    };
+  }
+  window.openExchange=step1;
 })();
 </script>
 </body>
