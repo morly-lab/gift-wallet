@@ -1730,18 +1730,28 @@ private val VATON_EXCHANGE_JS = """
               }
               function numText(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
               function textOf(el){ return (el.innerText || el.alt || el.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim(); }
-              function bestMatch(test, maxLen){
+              function matches(test, maxLen){
                 var all = document.querySelectorAll('a,button,li,div[role="button"],[onclick],img,div,p,span');
-                var best = null, bestLen = 1e9;
+                var arr = [];
                 for (var i = 0; i < all.length; i++) {
                   var el = all[i];
                   if (el.closest && el.closest('#gw-ex-panel')) continue;
                   var t = textOf(el);
                   if (!t || t.length > maxLen) continue;
                   if (!test(t)) continue;
-                  if (t.length < bestLen) { best = el; bestLen = t.length; }
+                  arr.push({ el: el, len: t.length });
                 }
-                return best;
+                arr.sort(function(a, b){ return a.len - b.len; });
+                return arr.map(function(x){ return x.el; });
+              }
+              function bestMatch(test, maxLen, idx){ var m = matches(test, maxLen); return m[idx || 0] || null; }
+              function tapTarget(el){
+                var c = el.closest ? el.closest('a,button,[role="button"],[onclick],li') : null;
+                return c || el;
+              }
+              function diag(){
+                var t = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').slice(0, 700);
+                return location.href + '\n' + t;
               }
               var BAD = /twitter|facebook|instagram|line\.me|apple\.com|play\.google|youtube|vaton|google/;
               function collect(){
@@ -1759,7 +1769,7 @@ private val VATON_EXCHANGE_JS = """
               }
               function fail(msg){
                 if (finished) return; finished = true;
-                try { if (HID) G.exchangeFailed(msg); else say(msg); } catch (e) {}
+                try { if (HID) G.exchangeFailed(msg + '\n\n[診断]\n' + diag()); else say(msg); } catch (e) {}
               }
               function watch(k){
                 if (finished || stopped()) return;
@@ -1793,40 +1803,53 @@ private val VATON_EXCHANGE_JS = """
                   left--; setTimeout(cd, 1000);
                 })();
               }
+              var lastMove = Date.now(), attempts = {};
               function tick(n){
                 if (finished || stopped()) return;
-                if (n > 110) { fail('交換画面で先に進めませんでした'); return; }
+                if (n > 160 || Date.now() - lastMove > 25000) { fail('交換画面で先に進めませんでした'); return; }
                 try {
-                  var path = location.pathname;
-                  var onBrands = path.indexOf('brands') >= 0;
-                  var key = path + '|' + (onBrands ? 'b' : 'o');
-                  if (!clicked[key] && !armed) {
-                    var el;
-                    if (onBrands) {
-                      el = bestMatch(function(t){
-                        var l = t.toLowerCase();
-                        for (var k = 0; k < keys.length; k++) if (l.indexOf(keys[k]) >= 0) return true;
-                        return false;
-                      }, 40);
-                      if (el) say(J.brand + 'を選んでいます…');
-                    } else if (!ST.pointsDone) {
-                      var pt = numText(J.points), pr = String(J.points);
-                      el = bestMatch(function(t){
-                        if (NG.test(t)) return false;
-                        return t.replace(/,/g,'').replace(/ポイント|pt|円/g,'').trim() === pr ||
-                               t.indexOf(pt + 'ポイント') >= 0 || t.indexOf(pt + 'pt') >= 0 || t.indexOf(pt + '円') >= 0;
-                      }, 30);
-                      if (el) { ST.pointsDone = true; save(); say(numText(J.points) + 'ポイントを選んでいます…'); }
+                  var path = location.pathname.replace(/\/+${'$'}/, '');
+                  var onList = /\/point\/brands${'$'}/.test(path);
+                  if (armed) lastMove = Date.now();
+                  if (!armed) {
+                    if (onList) {
+                      var k1 = 'list', c1 = attempts[k1] || 0;
+                      if (!clicked[k1] || Date.now() - clicked[k1] > 5000) {
+                        if (c1 < 4) {
+                          var el = bestMatch(function(t){
+                            var l = t.toLowerCase();
+                            for (var k = 0; k < keys.length; k++) if (l.indexOf(keys[k]) >= 0) return true;
+                            return false;
+                          }, 40, c1);
+                          if (el) {
+                            say(J.brand + 'を選んでいます…');
+                            clicked[k1] = Date.now(); attempts[k1] = c1 + 1; lastMove = Date.now();
+                            try { el.scrollIntoView({block:'center'}); } catch (e) {}
+                            fire(tapTarget(el));
+                          }
+                        }
+                      }
+                    } else {
+                      lastMove = Math.max(lastMove, Date.now() - 12000);
+                      if (!ST.pointsDone) {
+                        var pt = numText(J.points), pr = String(J.points);
+                        var pe = bestMatch(function(t){
+                          if (NG.test(t)) return false;
+                          return t.replace(/,/g,'').replace(/ポイント|pt|円/g,'').trim() === pr ||
+                                 t.indexOf(pt + 'ポイント') >= 0 || t.indexOf(pt + 'pt') >= 0 || t.indexOf(pt + '円') >= 0;
+                        }, 30);
+                        if (pe) {
+                          ST.pointsDone = true; save(); lastMove = Date.now();
+                          say(numText(J.points) + 'ポイントを選んでいます…');
+                          try { pe.scrollIntoView({block:'center'}); } catch (e) {}
+                          fire(tapTarget(pe));
+                        }
+                      }
+                      if (ST.pointsDone && (ST.finalCount || 0) < 3) {
+                        var fb = bestMatch(function(t){ return (ST.finalCount || 0) === 0 ? FINAL1.test(t) : (FINAL2.test(t) || FINAL1.test(t)); }, 14);
+                        if (fb) arm(tapTarget(fb) === fb ? fb : fb);
+                      }
                     }
-                    if (el) {
-                      clicked[key] = true;
-                      try { el.scrollIntoView({block:'center'}); } catch (e) {}
-                      fire(el);
-                    }
-                  }
-                  if (ST.pointsDone && !armed && (ST.finalCount || 0) < 3 && !onBrands) {
-                    var fb = bestMatch(function(t){ return (ST.finalCount || 0) === 0 ? FINAL1.test(t) : (FINAL2.test(t) || FINAL1.test(t)); }, 14);
-                    if (fb) arm(fb);
                   }
                 } catch (e) {}
                 setTimeout(function(){ tick(n + 1); }, 800);

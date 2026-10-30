@@ -3238,9 +3238,12 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
     o.querySelector('#gwExClose').onclick=closeX;
   };
   window.gwExFail=function(msg,brand,pts){
-    var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:8px;">うまく進めませんでした</div><div style="font-size:13px;line-height:1.6;">'+msg+'</div><div style="font-size:12px;opacity:.8;margin:8px 0;">画面を表示して、見ながら続けることもできます。</div><button type="button" id="gwExVis" style="width:100%;border:none;border-radius:999px;padding:12px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">画面を表示して続ける</button><button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';
+    var parts=String(msg).split('\n\n[診断]\n');var head=parts[0],dg=parts[1]||'';
+    var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:8px;">うまく進めませんでした</div><div style="font-size:13px;line-height:1.6;" id="gwExHead"></div><div style="font-size:12px;opacity:.8;margin:8px 0;">画面を表示して、見ながら続けることもできます。</div><button type="button" id="gwExVis" style="width:100%;border:none;border-radius:999px;padding:12px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">画面を表示して続ける</button>'+(dg?'<button type="button" id="gwExDg" style="width:100%;margin-top:8px;border:1px solid var(--gold);border-radius:999px;padding:10px;font-weight:800;background:none;color:#fff;">状況をコピー（ギフトくんに送る用）</button>':'')+'<button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';
     var o=shell(h);
+    o.querySelector('#gwExHead').textContent=head;
     o.querySelector('#gwExVis').onclick=function(){closeX();if(GiftWallet.startExchangeVisible)GiftWallet.startExchangeVisible(brand,String(pts));};
+    var d=o.querySelector('#gwExDg');if(d)d.onclick=function(){GiftWallet.copyText(brand+' '+pts+'\n'+dg);};
     o.querySelector('#gwExClose').onclick=function(){if(GiftWallet.clearExchangeJob)GiftWallet.clearExchangeJob();closeX();};
   };
   window.openExchange=step1;
