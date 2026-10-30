@@ -1113,7 +1113,7 @@ window.importGiftWalletCsvText = function(text, name){
     const i = idx >= 0 ? idx : slotData.length;
     slotData[i] = { rows, headers:h, name, size: String(text || '').length, checked:true, type };
     directAggregate();
-    if (window.__gwManualSync) { window.__gwManualSync = false; try { window.gwDonePopup(); } catch (e2) {} }
+    if (window.__gwManualSync || name === 'ポイント履歴_今月.csv') { window.__gwManualSync = false; try { window.gwDonePopup(); } catch (e2) {} }
     return true;
   } catch (e) {
     if (typeof showToast === 'function') showToast('CSVの取込に失敗しました');
