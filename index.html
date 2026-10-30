@@ -511,6 +511,15 @@ tr{cursor:pointer;}
     o.innerHTML='<style>@keyframes gwspin{to{transform:rotate(360deg)}}</style><div style="background:#14141f;border:1px solid var(--gold);border-radius:16px;padding:22px 30px;text-align:center;color:#fff;box-shadow:0 8px 30px rgba(0,0,0,.6);"><div style="width:34px;height:34px;margin:0 auto 12px;border:3px solid rgba(212,168,67,.3);border-top-color:var(--gold);border-radius:50%;animation:gwspin 1s linear infinite;"></div><div style="font-size:16px;font-weight:800;color:var(--gold);">更新中…</div><div style="font-size:12px;margin-top:6px;opacity:.8;">少しお待ちください</div></div>';
     document.body.appendChild(o);
   };
+  window.gwDonePopup=function(){
+    var old=document.getElementById('gwDonePop');if(old)old.remove();
+    var o=document.createElement('div');o.id='gwDonePop';
+    o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);');
+    o.innerHTML='<style>@keyframes gwPopIn{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}</style><div style="background:#14141f;border:2px solid var(--gold);border-radius:22px;padding:34px 30px;text-align:center;color:#fff;box-shadow:0 10px 40px rgba(0,0,0,.6);animation:gwPopIn .22s ease-out;max-width:86%;"><div style="font-size:44px;line-height:1;color:var(--gold);">✓</div><div style="font-size:24px;font-weight:800;color:var(--gold);margin-top:12px;line-height:1.4;">更新完了しました！</div></div>';
+    o.onclick=function(){o.remove();};
+    document.body.appendChild(o);
+    setTimeout(function(){if(o.parentNode)o.remove();},2200);
+  };
   window.gwLoginPrompt=function(welcome){
     if(document.getElementById('gwLoginPrompt'))return true;
     var o=document.createElement('div');o.id='gwLoginPrompt';
@@ -531,6 +540,7 @@ tr{cursor:pointer;}
   },1200);
   window.gwStartCsvSync=function(){
     if(busy||!hasBridge())return;
+    window.__gwManualSync=true;
     setBusy(true);
     var bg=bgSync();
     if(bg)window.gwSyncOverlay(true);
@@ -1079,6 +1089,7 @@ window.importGiftWalletCsvText = function(text, name){
     const i = idx >= 0 ? idx : slotData.length;
     slotData[i] = { rows, headers:h, name, size: String(text || '').length, checked:true, type };
     directAggregate();
+    if (window.__gwManualSync) { window.__gwManualSync = false; try { window.gwDonePopup(); } catch (e2) {} }
     return true;
   } catch (e) {
     if (typeof showToast === 'function') showToast('CSVの取込に失敗しました');
