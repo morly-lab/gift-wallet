@@ -1703,7 +1703,13 @@ private val VATON_CSV_JS = """
                     o.push(sels[i].options.length + ':' + t.join('|'));
                   }
                   var b = [].slice.call(document.querySelectorAll('button')).map(function(x){return (x.textContent||'').trim().slice(0,12);}).slice(0,8).join(',');
-                  return '[sel=' + sels.length + ' ' + o.join(';') + ' modal=' + isModalOpen() + ' btn=' + b + ' want=' + wantMonth() + ' path=' + location.pathname + ']';
+                  var h = '';
+                  try {
+                    var db = findBtn('ダウンロードする'); var n = db;
+                    for (var k = 0; k < 4 && n && n.parentElement; k++) n = n.parentElement;
+                    h = n ? n.outerHTML.replace(/\s+/g, ' ').slice(0, 1800) : 'nobtn';
+                  } catch (e1) { h = 'err'; }
+                  return 'HTML=' + h + ' [sel=' + sels.length + ' ' + o.join(';') + ' modal=' + isModalOpen() + ' btn=' + b + ' want=' + wantMonth() + ' path=' + location.pathname + ']';
                 } catch (e) { return '[diag err]'; }
               }
               function startPoll(tries){
