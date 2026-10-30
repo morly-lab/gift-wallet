@@ -275,7 +275,7 @@ class MainActivity : AppCompatActivity() {
             syncHandler.postDelayed({
                 if (exchangeHiddenRunning) {
                     endHiddenExchange(keepJob = true)
-                    webCall("gwExFail", JSONObject.quote("時間がかかっています") + "," + JSONObject.quote(brand) + "," + JSONObject.quote(points))
+                    webCall("gwExFail", JSONObject.quote("時間がかかっています。交換済みの可能性があるので、vatonのマイギフトを確認してください") + "," + JSONObject.quote(brand) + "," + JSONObject.quote(points))
                 }
             }, 150_000L)
         } else {
@@ -649,6 +649,14 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun startExchangeVisible(brand: String, points: String) {
             runOnUiThread { beginExchange(brand, points, false) }
+        }
+
+        @JavascriptInterface
+        fun openVatonVisible() {
+            runOnUiThread {
+                prefs.edit().remove("exchange_job").apply()
+                webView.loadUrl("https://wallet.vaton.jp/")
+            }
         }
 
         @JavascriptInterface
@@ -1767,24 +1775,42 @@ private val VATON_EXCHANGE_JS = """
                 (txt.match(/(?<![0-9])[0-9]{12,20}(?![0-9])/g) || []).forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
                 return out.slice(0, 8);
               }
+              function pageText(){ return (document.body ? document.body.innerText : '').replace(/\s+/g, ' '); }
               function fail(msg){
                 if (finished) return; finished = true;
                 try { if (HID) G.exchangeFailed(msg + '\n\n[診断]\n' + diag()); else say(msg); } catch (e) {}
               }
-              function watch(k){
+              function finishWith(c){
+                if (finished) return; finished = true;
+                c.forEach(function(x){ try { G.saveExchangeResult(J.brand + ' ' + numText(J.points) + 'pt\n' + x); } catch (e) {} });
+                ST = {}; save();
+                if (HID) { try { G.exchangeDone(JSON.stringify(c)); } catch (e) {} }
+                else say(c.length ? c.length + '件を保存しました。コピーやメモ保存ができます' : '交換は完了しました。コードはvatonの「マイギフト」で確認してください');
+              }
+              var baseline = [];
+              function afterComplete(k){
                 if (finished || stopped()) return;
-                var c = collect();
-                if (c.length) {
-                  finished = true;
-                  var items = c.map(function(x){ return J.brand + ' ' + numText(J.points) + 'pt\n' + x; });
-                  items.forEach(function(x){ try { G.saveExchangeResult(x); } catch (e) {} });
-                  ST = {}; save();
-                  if (HID) { try { G.exchangeDone(JSON.stringify(c)); } catch (e) {} }
-                  else say(c.length + '件を保存しました。コピーやメモ保存ができます');
+                if (k === 1 && !ST.usedGift) {
+                  baseline = collect();
+                  var ub = bestMatch(function(t){ return /^ギフトを使用する${'$'}/.test(t); }, 14);
+                  if (ub) { ST.usedGift = true; save(); say('交換できました。コードを開いています…'); fire(tapTarget(ub)); }
+                }
+                if (ST.usedGift || k > 3) {
+                  var c = collect().filter(function(x){ return baseline.indexOf(x) < 0; });
+                  if (c.length) { finishWith(c); return; }
+                }
+                if (k > 20) { finishWith([]); return; }
+                setTimeout(function(){ afterComplete(k + 1); }, 1000);
+              }
+              var completeStarted = false;
+              function waitComplete(k){
+                if (finished || stopped()) return;
+                if (/ギフトを交換しました/.test(pageText())) {
+                  if (!completeStarted) { completeStarted = true; say('交換が完了しました'); afterComplete(0); }
                   return;
                 }
-                if (k > 30) { fail('交換を押しましたが、コードやリンクが見つかりませんでした'); return; }
-                setTimeout(function(){ watch(k + 1); }, 1000);
+                if (k > 40) { fail('交換ボタンは押しましたが、完了画面を確認できませんでした。vatonの「マイギフト」を確認してください'); return; }
+                setTimeout(function(){ waitComplete(k + 1); }, 1000);
               }
               function arm(btn){
                 armed = true; var left = 3;
@@ -1794,8 +1820,7 @@ private val VATON_EXCHANGE_JS = """
                     fire(btn); ST.finalCount = (ST.finalCount || 0) + 1; save();
                     say('「' + textOf(btn) + '」を押しました。結果を待っています…');
                     var sb = document.getElementById('gw-ex-stop'); if (sb) sb.style.display = 'none';
-                    setTimeout(function(){ armed = false; }, 2500);
-                    watch(0);
+                    waitComplete(0);
                     return;
                   }
                   say(left + '秒後に「' + textOf(btn) + '」を自動で押します');
@@ -1803,52 +1828,45 @@ private val VATON_EXCHANGE_JS = """
                   left--; setTimeout(cd, 1000);
                 })();
               }
-              var lastMove = Date.now(), attempts = {};
+              var lastMove = Date.now(), clk = {}, att = {};
+              function tryClick(key, finder, msg){
+                if (clk[key] && Date.now() - clk[key] < 5000) return;
+                var c = att[key] || 0;
+                if (c >= 4) return;
+                var e = finder(c);
+                if (!e) return;
+                if (msg) say(msg);
+                clk[key] = Date.now(); att[key] = c + 1; lastMove = Date.now();
+                try { e.scrollIntoView({block:'center'}); } catch (x) {}
+                fire(tapTarget(e));
+              }
               function tick(n){
                 if (finished || stopped()) return;
-                if (n > 160 || Date.now() - lastMove > 25000) { fail('交換画面で先に進めませんでした'); return; }
+                if ((ST.finalCount || 0) > 0) { if (!armed) { armed = true; waitComplete(0); } return; }
+                if (n > 200 || Date.now() - lastMove > 25000) { fail('交換画面で先に進めませんでした'); return; }
                 try {
-                  var path = location.pathname.replace(/\/+${'$'}/, '');
-                  var onList = /\/point\/brands${'$'}/.test(path);
-                  if (armed) lastMove = Date.now();
                   if (!armed) {
-                    if (onList) {
-                      var k1 = 'list', c1 = attempts[k1] || 0;
-                      if (!clicked[k1] || Date.now() - clicked[k1] > 5000) {
-                        if (c1 < 4) {
-                          var el = bestMatch(function(t){
-                            var l = t.toLowerCase();
-                            for (var k = 0; k < keys.length; k++) if (l.indexOf(keys[k]) >= 0) return true;
-                            return false;
-                          }, 40, c1);
-                          if (el) {
-                            say(J.brand + 'を選んでいます…');
-                            clicked[k1] = Date.now(); attempts[k1] = c1 + 1; lastMove = Date.now();
-                            try { el.scrollIntoView({block:'center'}); } catch (e) {}
-                            fire(tapTarget(el));
-                          }
-                        }
-                      }
+                    var txt = pageText();
+                    var path = location.pathname.replace(/\/+${'$'}/, '');
+                    if (/よろしいですか/.test(txt)) {
+                      var fb = bestMatch(function(t){ return /^交換する${'$'}/.test(t); }, 10);
+                      if (fb) { lastMove = Date.now(); arm(fb); }
+                    } else if (/ギフト詳細/.test(txt)) {
+                      tryClick('detail', function(){ return bestMatch(function(t){ return /^交換にすすむ${'$'}/.test(t); }, 10); }, '交換へ進んでいます…');
+                    } else if (/\/point\/brands${'$'}/.test(path)) {
+                      tryClick('list', function(i){
+                        return bestMatch(function(t){
+                          var l = t.toLowerCase();
+                          for (var k = 0; k < keys.length; k++) if (l.indexOf(keys[k]) >= 0) return true;
+                          return false;
+                        }, 40, i);
+                      }, J.brand + 'を選んでいます…');
                     } else {
-                      lastMove = Math.max(lastMove, Date.now() - 12000);
-                      if (!ST.pointsDone) {
-                        var pt = numText(J.points), pr = String(J.points);
-                        var pe = bestMatch(function(t){
-                          if (NG.test(t)) return false;
-                          return t.replace(/,/g,'').replace(/ポイント|pt|円/g,'').trim() === pr ||
-                                 t.indexOf(pt + 'ポイント') >= 0 || t.indexOf(pt + 'pt') >= 0 || t.indexOf(pt + '円') >= 0;
-                        }, 30);
-                        if (pe) {
-                          ST.pointsDone = true; save(); lastMove = Date.now();
-                          say(numText(J.points) + 'ポイントを選んでいます…');
-                          try { pe.scrollIntoView({block:'center'}); } catch (e) {}
-                          fire(tapTarget(pe));
-                        }
-                      }
-                      if (ST.pointsDone && (ST.finalCount || 0) < 3) {
-                        var fb = bestMatch(function(t){ return (ST.finalCount || 0) === 0 ? FINAL1.test(t) : (FINAL2.test(t) || FINAL1.test(t)); }, 14);
-                        if (fb) arm(tapTarget(fb) === fb ? fb : fb);
-                      }
+                      var pr = String(J.points);
+                      var re = new RegExp('(^|[^0-9])' + pr + '円分');
+                      tryClick('opt', function(i){
+                        return bestMatch(function(t){ return re.test(t.replace(/,/g, '')) && t.length < 40; }, 40, i);
+                      }, numText(J.points) + 'ポイントを選んでいます…');
                     }
                   }
                 } catch (e) {}

@@ -3178,7 +3178,7 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
 // ===== 交換（Amazon / au PAY / マジカ / WAON） =====
 (function(){
   var BRANDS=[{n:'Amazon',e:'🛒'},{n:'au PAY',e:'💳'},{n:'マジカ',e:'🅼'},{n:'WAON',e:'🟣'}];
-  var POINTS=[500,1000,3000,5000,10000];
+  var POINTS=[50,100,200,300,500,1000];
   var sel={brand:'',points:0};
   function closeX(){var o=document.getElementById('gwExModal');if(o)o.remove();}
   function shell(inner){
@@ -3229,6 +3229,7 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
     o.querySelector('#gwExMsg').textContent=msg;
   };
   window.gwExResult=function(list,brand,pts){
+    if(!list.length){var h0='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:8px;">交換が終わりました</div><div style="font-size:13px;line-height:1.6;">'+brand+' '+Number(pts).toLocaleString()+'ポイントを交換しました。コードやリンクは自動で取れなかったので、vatonの「マイギフト」で確認してください。</div><button type="button" id="gwExMy" style="width:100%;margin-top:12px;border:none;border-radius:999px;padding:12px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">vatonを開く</button><button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';var o0=shell(h0);o0.querySelector('#gwExMy').onclick=function(){closeX();if(GiftWallet.openVatonVisible)GiftWallet.openVatonVisible();};o0.querySelector('#gwExClose').onclick=closeX;return;}
     var text=list.map(function(x){return brand+' '+Number(pts).toLocaleString()+'pt\n'+x;}).join('\n\n');
     var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:6px;">交換が終わりました</div><div style="font-size:12px;opacity:.8;margin-bottom:8px;">'+brand+' '+Number(pts).toLocaleString()+'ポイント</div><div style="background:#0d0d16;border-radius:10px;padding:10px;font-size:12px;word-break:break-all;max-height:30vh;overflow:auto;white-space:pre-wrap;"></div><div style="display:flex;gap:8px;margin-top:12px;"><button type="button" id="gwExCp" style="flex:1;border:none;border-radius:999px;padding:11px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">コピー</button><button type="button" id="gwExMemo" style="flex:1;border:1px solid var(--gold);border-radius:999px;padding:11px;font-weight:800;background:none;color:#fff;">メモに保存</button></div><button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';
     var o=shell(h);
@@ -3242,7 +3243,9 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
     var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:8px;">うまく進めませんでした</div><div style="font-size:13px;line-height:1.6;" id="gwExHead"></div><div style="font-size:12px;opacity:.8;margin:8px 0;">画面を表示して、見ながら続けることもできます。</div><button type="button" id="gwExVis" style="width:100%;border:none;border-radius:999px;padding:12px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">画面を表示して続ける</button>'+(dg?'<button type="button" id="gwExDg" style="width:100%;margin-top:8px;border:1px solid var(--gold);border-radius:999px;padding:10px;font-weight:800;background:none;color:#fff;">状況をコピー（ギフトくんに送る用）</button>':'')+'<button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';
     var o=shell(h);
     o.querySelector('#gwExHead').textContent=head;
-    o.querySelector('#gwExVis').onclick=function(){closeX();if(GiftWallet.startExchangeVisible)GiftWallet.startExchangeVisible(brand,String(pts));};
+    var chk=head.indexOf('マイギフト')>=0;
+    if(chk)o.querySelector('#gwExVis').textContent='vatonを開いてマイギフトを確認';
+    o.querySelector('#gwExVis').onclick=function(){closeX();if(chk){if(GiftWallet.openVatonVisible)GiftWallet.openVatonVisible();}else if(GiftWallet.startExchangeVisible)GiftWallet.startExchangeVisible(brand,String(pts));};
     var d=o.querySelector('#gwExDg');if(d)d.onclick=function(){GiftWallet.copyText(brand+' '+pts+'\n'+dg);};
     o.querySelector('#gwExClose').onclick=function(){if(GiftWallet.clearExchangeJob)GiftWallet.clearExchangeJob();closeX();};
   };
