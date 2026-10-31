@@ -386,6 +386,15 @@ class MainActivity : AppCompatActivity() {
     private var pastFail = 0
     private var pastToken = 0
 
+    private fun startMonthSync(label: String) {
+        if (pastActive || csvSyncInFlight) return
+        if (!Regex("^\\d{4}年\\d{1,2}月$").matches(label)) return
+        pastQueue = ArrayDeque()
+        pastQueue.add(label)
+        pastTotal = 1; pastOk = 0; pastFail = 0; pastActive = true
+        pastNext()
+    }
+
     private fun startPastSync(months: Int) {
         if (pastActive || csvSyncInFlight) return
         val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo"))
@@ -780,6 +789,11 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun startPastCsvSync(months: Int) {
             runOnUiThread { startPastSync(months) }
+        }
+
+        @JavascriptInterface
+        fun startMonthCsvSync(label: String) {
+            runOnUiThread { startMonthSync(label) }
         }
 
         @JavascriptInterface

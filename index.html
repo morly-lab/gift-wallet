@@ -488,6 +488,7 @@ tr{cursor:pointer;}
   <div class="topnav">
     <div style="flex:1;display:flex;align-items:center;justify-content:center;">
       <span class="topnav-title" id="calNavTitle">えらべるPay 収支表</span>
+      <button type="button" id="calMonthRefresh" onclick="window.gwMonthRefresh&&window.gwMonthRefresh()" aria-label="この月のCSVを更新" style="flex-shrink:0;margin-left:6px;width:28px;height:28px;border-radius:50%;border:1px solid rgba(212,168,67,.6);background:rgba(212,168,67,.12);color:#d4a843;font-size:15px;font-weight:800;line-height:1;cursor:pointer;padding:0;">↻</button>
     </div>
     <div style="display:flex;gap:4px;flex-shrink:0;">
       <button id="hintToggleBtn" onclick="window.toggleHintsFromMenu&&window.toggleHintsFromMenu()" class="tna-btn" style="background:rgba(255,255,255,.25);gap:3px;padding:6px 9px;">
@@ -525,7 +526,7 @@ window.gwNeedUpdate=function(){
   var v='';try{v=String(window.GiftWallet&&GiftWallet.getAppVersion?GiftWallet.getAppVersion():'');}catch(e){}
   var o=document.createElement('div');o.id='gwNeedUpd';
   o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:100001;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:24px;');
-  o.innerHTML='<div style="background:#14141f;border:2px solid var(--gold);border-radius:20px;padding:26px 22px;text-align:center;color:#fff;max-width:330px;width:100%;"><div style="font-size:18px;font-weight:800;color:var(--gold);">アプリの更新が必要です</div><div style="font-size:13px;opacity:.9;margin:10px 0 18px;line-height:1.7;">この機能は新しい版で使えます。<br>'+(v?'いまの版 v'+v+'<br>':'')+'最新版 v1.4.17 を入れてください。</div><button type="button" id="gwNuGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:14px;font-size:15px;font-weight:800;">更新する</button><button type="button" id="gwNuNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:6px;">やめる</button></div>';
+  o.innerHTML='<div style="background:#14141f;border:2px solid var(--gold);border-radius:20px;padding:26px 22px;text-align:center;color:#fff;max-width:330px;width:100%;"><div style="font-size:18px;font-weight:800;color:var(--gold);">アプリの更新が必要です</div><div style="font-size:13px;opacity:.9;margin:10px 0 18px;line-height:1.7;">この機能は新しい版で使えます。<br>'+(v?'いまの版 v'+v+'<br>':'')+'最新版 v1.4.18 を入れてください。</div><button type="button" id="gwNuGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:14px;font-size:15px;font-weight:800;">更新する</button><button type="button" id="gwNuNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:6px;">やめる</button></div>';
   document.body.appendChild(o);
   document.getElementById('gwNuNo').onclick=function(){o.remove();};
   document.getElementById('gwNuGo').onclick=function(){o.remove();try{if(window.GiftWallet&&typeof GiftWallet.startInAppUpdate==='function'){window.gwUpdAsk();return;}}catch(e){}location.href='https://gift-wallet.pages.dev/install';};
@@ -551,7 +552,18 @@ window.gwNeedUpdate=function(){
     }
     o.querySelector('#gwPastMsg').textContent=msg;
   };
+  window.gwMonthRefresh=function(){
+    var t=(document.getElementById('calNavTitle')||{}).textContent||'';
+    var m=/(\d+)年\s*(\d+)月/.exec(t);
+    if(!m){return;}
+    var now=new Date(Date.now()+9*3600*1000);
+    var isCur=Number(m[1])===now.getUTCFullYear()&&Number(m[2])===now.getUTCMonth()+1;
+    if(isCur&&typeof window.gwStartCsvSync==='function'){window.gwStartCsvSync();return;}
+    if(!(window.GiftWallet&&typeof GiftWallet.startMonthCsvSync==='function')){window.gwNeedUpdate();return;}
+    GiftWallet.startMonthCsvSync(m[1]+'年'+Number(m[2])+'月');
+  };
   window.gwPastDone=function(ok,fail,total){
+    if(Number(total)===1){window.gwDonePopup(Number(ok)?'更新完了しました！':'更新できませんでした','この月の履歴がない場合もあります');return;}
     window.gwDonePopup('過去分の取り込みが完了しました！',(ok)+'か月分を反映'+(fail?'（取れなかった月 '+fail+'か月。月に履歴がない場合もあります）':''));
   };
   window.gwLoginPrompt=function(welcome){
