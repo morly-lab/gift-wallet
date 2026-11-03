@@ -932,6 +932,18 @@ window.gwNeedUpdate=function(){
     </div>
     <div id="dayModalTotal" style="padding:4px 20px 12px;font-size:13px;color:#888;border-bottom:1px solid #f0f0f0;"></div>
     <div id="dayModalList" style="padding:12px 20px;max-height:40vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;"></div>
+    <div style="padding:0 20px 12px;">
+      <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:6px;">＋ 手入力で追加</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <button type="button" id="gwMkPP" onclick="gwManualKind('PayPay')" style="flex:1;border-radius:999px;padding:7px 4px;font-size:12px;font-weight:800;cursor:pointer;border:1.5px solid #e5e7eb;background:#fff;color:#555;">PayPay</button>
+        <button type="button" id="gwMkV" onclick="gwManualKind('Vポイント')" style="flex:1;border-radius:999px;padding:7px 4px;font-size:12px;font-weight:800;cursor:pointer;border:1.5px solid #e5e7eb;background:#fff;color:#555;">Vポイント</button>
+        <button type="button" id="gwMkO" onclick="gwManualKind('その他')" style="flex:1;border-radius:999px;padding:7px 4px;font-size:12px;font-weight:800;cursor:pointer;border:1.5px solid #e5e7eb;background:#fff;color:#555;">その他</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <input id="gwManualAmt" type="number" inputmode="numeric" min="1" placeholder="金額（円）" style="flex:1;min-width:0;border:1.5px solid #e5e7eb;border-radius:10px;padding:10px 12px;font-size:15px;box-sizing:border-box;">
+        <button type="button" onclick="gwManualAdd()" style="background:linear-gradient(135deg,#e8c566,#d4a843);color:#000;border:none;border-radius:10px;padding:0 18px;font-size:14px;font-weight:800;cursor:pointer;">追加</button>
+      </div>
+    </div>
     <div style="padding:0 20px;">
       <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:4px;">📋 メモ</div>
       <textarea class="memo-input" id="memoInput" rows="2" placeholder="この日のメモを入力..."></textarea>
@@ -1522,7 +1534,7 @@ function renderAll(){
   const savedE=[];
   savedKeys.forEach(mk=>savedE.push(...JSON.parse(localStorage.getItem('charge_'+mk)||'[]')));
   const curKeys=new Set(allEntries.map(e=>e.monthKey));
-  const disp=[...allEntries,...savedE.filter(e=>!curKeys.has(e.monthKey))];
+  const disp=[...allEntries,...savedE.filter(e=>!curKeys.has(e.monthKey)),...gwManualList()];
   monthMap={};
   disp.forEach(e=>{
     if(!monthMap[e.monthKey])monthMap[e.monthKey]={total:0,count:0,days:{}};
@@ -1997,6 +2009,52 @@ function sizeCalendarGrid(){
 window.addEventListener('resize', sizeCalendarGrid);
 
 // ===== 日付詳細モーダル（メモ付き） =====
+// ===== 手入力（PayPay・Vポイントなど）=====
+function gwManualList(){
+  try{const a=JSON.parse(localStorage.getItem('gwManualEntries')||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+function gwManualKind(k){window.__gwManualKind=k;gwManualKindUi();}
+function gwManualKindUi(){
+  const k=window.__gwManualKind||'PayPay';
+  [['gwMkPP','PayPay'],['gwMkV','Vポイント'],['gwMkO','その他']].forEach(([id,name])=>{
+    const b=document.getElementById(id);if(!b)return;
+    const on=name===k;
+    b.style.background=on?'#d4a843':'#fff';
+    b.style.color=on?'#000':'#555';
+    b.style.borderColor=on?'#d4a843':'#e5e7eb';
+  });
+}
+function gwManualRefresh(y,mo,d){
+  const mk=`${y}/${String(mo).padStart(2,'0')}`;
+  renderAll();
+  const i=allMonths.indexOf(mk);
+  if(i>=0){currentMonthIdx=i;renderTabs();renderCalendar();}
+  const days=(monthMap[mk]&&monthMap[mk].days&&monthMap[mk].days[d])||[];
+  openDayModal(y,mo,d,days);
+}
+function gwManualAdd(){
+  const el=document.getElementById('gwManualAmt');
+  const amount=parseInt(String(el&&el.value||'').replace(/[^\d]/g,''))||0;
+  if(!amount){showToast('金額を入力してください');return;}
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(currentDayKey||'');
+  if(!m)return;
+  const y=+m[1],mo=+m[2],d=+m[3];
+  const kind=window.__gwManualKind||'PayPay';
+  const list=gwManualList();
+  list.push({id:'m'+Date.now().toString(36)+Math.floor(Math.random()*1000),year:y,month:mo,day:d,amount,source:'manual',kind,brand:kind,
+    dateStr:`${y}/${String(mo).padStart(2,'0')}/${String(d).padStart(2,'0')}`,monthKey:`${y}/${String(mo).padStart(2,'0')}`});
+  localStorage.setItem('gwManualEntries',JSON.stringify(list));
+  gwManualRefresh(y,mo,d);
+  showToast(kind+' ¥'+fmt(amount)+' を追加しました');
+}
+function gwManualDel(id){
+  const list=gwManualList();
+  const t=list.find(e=>e.id===id);
+  if(!t)return;
+  localStorage.setItem('gwManualEntries',JSON.stringify(list.filter(e=>e.id!==id)));
+  gwManualRefresh(t.year,t.month,t.day);
+  showToast('削除しました');
+}
 function openDayModal(y,mo,d,charges){
   const dow=['日','月','火','水','木','金','土'][new Date(y,mo-1,d).getDay()];
   const total=charges.reduce((a,b)=>a+b,0);
@@ -2004,11 +2062,13 @@ function openDayModal(y,mo,d,charges){
   document.getElementById('dayModalTotal').textContent=charges.length?`合計 ¥${fmt(total)}　${charges.length}件のチャージ`:'この日のチャージはありません';
   currentDayKey=`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const dayEntries=[...allEntries].filter(e=>e.year===y&&e.month===mo&&e.day===d);
+  const manualDay=gwManualList().filter(e=>e.year===y&&e.month===mo&&e.day===d);
   const list=document.getElementById('dayModalList');list.innerHTML='';
+  const rowCss='display:flex;align-items:center;gap:10px;background:#f8f9fa;border-radius:10px;padding:10px 14px;';
   if(dayEntries.length){
     dayEntries.forEach((e,i)=>{
       const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:10px;background:#f8f9fa;border-radius:10px;padding:10px 14px;';
+      row.style.cssText=rowCss;
       const srcBadge=e.source==='paypay'
         ?`<span style="background:#fce7f3;color:#be185d;font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;flex-shrink:0;">PayPay</span>`
         :`<span style="background:#fef9c3;color:#a16207;font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;flex-shrink:0;">えらべる</span>`;
@@ -2016,13 +2076,26 @@ function openDayModal(y,mo,d,charges){
       list.appendChild(row);
     });
   } else if(charges.length){
-    charges.forEach((amt,i)=>{
+    const rest=[...charges];
+    manualDay.forEach(m=>{const k=rest.indexOf(m.amount);if(k>=0)rest.splice(k,1);});
+    rest.forEach((amt,i)=>{
       const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:10px;background:#f8f9fa;border-radius:10px;padding:10px 14px;';
+      row.style.cssText=rowCss;
       row.innerHTML=`<div style="flex:1;font-size:12px;color:#555;">チャージ ${i+1}</div><div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:#1a1a2e;">¥${fmt(amt)}</div>`;
       list.appendChild(row);
     });
   }
+  manualDay.forEach(m=>{
+    const row=document.createElement('div');
+    row.style.cssText=rowCss;
+    const isV=m.kind==='Vポイント';
+    const badge=`<span style="background:${isV?'#dbeafe':'#fce7f3'};color:${isV?'#1d4ed8':'#be185d'};font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;flex-shrink:0;">${m.kind}</span>`;
+    row.innerHTML=`${badge}<div style="flex:1;font-size:12px;color:#555;">手入力${m.memo?'：'+m.memo.replace(/</g,'&lt;'):''}</div><div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:#1a1a2e;">¥${fmt(m.amount)}</div><button type="button" aria-label="削除" onclick="gwManualDel('${m.id}')" style="background:#e5e7eb;border:none;border-radius:50%;width:26px;height:26px;font-size:13px;cursor:pointer;flex-shrink:0;">✕</button>`;
+    list.appendChild(row);
+  });
+  window.__gwManualKind=window.__gwManualKind||'PayPay';
+  gwManualKindUi();
+  const mi=document.getElementById('gwManualAmt');if(mi)mi.value='';
   // メモ読み込み
   const memo=localStorage.getItem('memo_'+currentDayKey)||'';
   document.getElementById('memoInput').value=memo;
