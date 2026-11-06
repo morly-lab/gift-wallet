@@ -24,4 +24,4 @@ cd android-app
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
 
-署名済みの配布用APKは `assembleRelease` と既存の署名設定が必要。署名設定がこの環境に無い場合は、debug APKを配布版として `dist/` に置かない。
+このリポジトリには配布用の署名設定がありません。`assembleRelease` は未署名の `app-release-unsigned.apk` を作ります。配布用の鍵はここでは作りません。端末に入れて動作を見るだけの場合は `assembleDebug` がデバッグ署名のAPKを作ります。どちらも `dist/` の既存APKとは別に扱ってください。

@@ -73,7 +73,20 @@
         if (root.showToast) root.showToast(gate.code === 'still_unknown' ? 'まだ分からないのでロックは外しません' : '残高と履歴の確認が必要です');
         return;
       }
-      try { if (root.GiftWallet && root.GiftWallet.clearExchangeLock) root.GiftWallet.clearExchangeLock(); } catch (e) {}
+      var cleared = '0';
+      try {
+        if (root.GiftWallet && root.GiftWallet.clearExchangeLock) {
+          cleared = String(root.GiftWallet.clearExchangeLock(JSON.stringify({
+            balanceChecked: !!o.querySelector('#gwExBal').checked,
+            historyChecked: !!o.querySelector('#gwExHist').checked,
+            manualResolved: unknown ? resolved : 'not_exchanged'
+          })));
+        }
+      } catch (e) { cleared = '0'; }
+      if (cleared !== '1') {
+        if (root.showToast) root.showToast('確認が足りないため、ロックは外していません');
+        return;
+      }
       closeX();
       if (root.showToast) root.showToast('確認を保存しました。必要なら交換をやり直せます');
     };

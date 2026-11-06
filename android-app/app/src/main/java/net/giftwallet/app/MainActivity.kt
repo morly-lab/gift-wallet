@@ -343,6 +343,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var exchangeHiddenRunning = false
+    private var exchangeToken = 0
     private var loginReturnScheduled = false
     private val assetJsCache = HashMap<String, String>()
 
@@ -358,10 +359,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun currentLockMode(): String? {
+        val raw = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
+        if (raw.isBlank()) return null
+        return try {
+            JSONObject(raw).optString("mode").ifBlank { "unknown" }
+        } catch (_: Exception) {
+            "unknown"
+        }
+    }
+
     private fun holdExchange(reason: String) {
+        val mode = ExchangeSafety.mergeLockMode(currentLockMode(), "unknown") ?: return
         val lock = JSONObject()
-            .put("mode", "unknown")
-            .put("reason", reason)
+            .put("mode", mode)
+            .put("reason", ExchangeSafety.redact(reason))
             .put("pressed", true)
         prefs.edit().putString(KEY_EXCHANGE_LOCK, lock.toString()).apply()
     }
@@ -377,25 +389,35 @@ class MainActivity : AppCompatActivity() {
         val kind = job.optString("kind")
         val count = job.optInt("count", 0)
         val face = job.optInt("faceYen", 0)
-        if (account.isBlank() || kind.isBlank() || face != 10000 || count !in 1..20) {
+        if (!ExchangeSafety.acceptJob(account, kind, count, face)) {
             webCall("gwExFail", JSONObject.quote("依頼内容を確認できません") + "," + JSONObject.quote(kind) + ",\"\"")
             return
         }
-        val existingLock = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
-        if (existingLock.isNotBlank()) {
-            webCall("gwExBlocked", JSONObject.quote(existingLock))
+        val blocked = ExchangeSafety.canStart(exchangeHiddenRunning, currentLockMode())
+        if (blocked != null) {
+            val existingLock = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
+            if (existingLock.isNotBlank()) {
+                webCall("gwExBlocked", JSONObject.quote(existingLock))
+            } else {
+                webCall("gwExFail", JSONObject.quote("交換の途中です。終わってからもう一度選んでください") + "," + JSONObject.quote(kind) + ",\"\"")
+            }
             return
         }
-        job.put("at", System.currentTimeMillis())
-        job.put("hidden", true)
-        job.put("faceYen", 10000)
-        prefs.edit().putString("exchange_job", job.toString()).apply()
+        val clean = JSONObject()
+            .put("account", account)
+            .put("kind", kind)
+            .put("count", count)
+            .put("faceYen", ExchangeSafety.FACE_YEN)
+            .put("at", System.currentTimeMillis())
+            .put("hidden", true)
+        prefs.edit().putString("exchange_job", clean.toString()).apply()
+        val token = ++exchangeToken
         exchangeHiddenRunning = true
         syncWebView?.evaluateJavascript("window.__gwExStop=false;", null)
         webCall("gwExOverlay", JSONObject.quote("交換の準備をしています…"))
         syncWebView?.loadUrl("https://wallet.vaton.jp/point/brands")
         syncHandler.postDelayed({
-            if (exchangeHiddenRunning) {
+            if (exchangeHiddenRunning && token == exchangeToken) {
                 endHiddenExchange(keepJob = true)
                 val reason = "時間がかかっています。交換済みの可能性があるので、残高とマイギフトを確認してください"
                 holdExchange(reason)
@@ -406,6 +428,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun endHiddenExchange(keepJob: Boolean = false) {
         exchangeHiddenRunning = false
+        exchangeToken++
         syncWebView?.evaluateJavascript("window.__gwExStop=true;", null)
         syncWebView?.loadUrl("about:blank")
         if (!keepJob) prefs.edit().remove("exchange_job").apply()
@@ -820,11 +843,12 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 val startup = csvSyncSilent && !pastActive
                 csvSyncSilent = false
-                android.util.Log.w("GWPAST", "fail " + (pastCurrent ?: "-") + " " + message)
+                val safe = ExchangeSafety.redact(message).take(180)
+                android.util.Log.w("GWPAST", "fail " + (pastCurrent ?: "-") + " " + safe)
                 finishSyncUi()
                 if (startup) webCall("gwStartupAuthResult", JSONObject.quote("error") + ",true")
                 if (pastActive) { pastAdvance(false); return@runOnUiThread }
-                val msg = message.ifBlank { "CSVの自動取得に失敗しました" }
+                val msg = safe.ifBlank { "CSVの自動取得に失敗しました" }
                 Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
             }
         }
@@ -909,10 +933,18 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun exchangeDone(json: String) {
             runOnUiThread {
-                val job = try { JSONObject(prefs.getString("exchange_job", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
-                val brand = job.optString("brand"); val pts = job.optString("points")
+                if (!exchangeHiddenRunning) return@runOnUiThread
+                val obj = try {
+                    JSONObject(json)
+                } catch (_: Exception) {
+                    JSONObject()
+                }
+                val count = obj.optInt("count", 0).coerceIn(0, 20)
+                val kind = obj.optString("kind")
+                val safeKind = if (kind in ExchangeSafety.KINDS) kind else ""
                 endHiddenExchange()
-                webCall("gwExResult", json + "," + JSONObject.quote(brand) + "," + JSONObject.quote(pts))
+                val payload = JSONObject().put("count", count).put("kind", safeKind)
+                webCall("gwExResult", JSONObject.quote(payload.toString()))
             }
         }
 
@@ -925,7 +957,8 @@ class MainActivity : AppCompatActivity() {
                     holdExchange("結果を確認できません。残高と履歴を見るまで再送しません")
                 }
                 endHiddenExchange(keepJob = true)
-                webCall("gwExFail", JSONObject.quote(msg) + "," + JSONObject.quote(kind) + ",\"\"")
+                val safe = ExchangeSafety.redact(msg).take(500)
+                webCall("gwExFail", JSONObject.quote(safe) + "," + JSONObject.quote(kind) + ",\"\"")
             }
         }
 
@@ -933,9 +966,12 @@ class MainActivity : AppCompatActivity() {
         fun setExchangeLock(json: String) {
             try {
                 val obj = JSONObject(json)
-                val mode = obj.optString("mode")
-                if (mode != "hold" && mode != "unknown") return
-                prefs.edit().putString(KEY_EXCHANGE_LOCK, obj.toString()).apply()
+                val mode = ExchangeSafety.mergeLockMode(currentLockMode(), obj.optString("mode")) ?: return
+                val stored = JSONObject()
+                    .put("mode", mode)
+                    .put("reason", ExchangeSafety.redact(obj.optString("reason")).take(300))
+                    .put("pressed", obj.optBoolean("pressed"))
+                prefs.edit().putString(KEY_EXCHANGE_LOCK, stored.toString()).apply()
             } catch (_: Exception) {
             }
         }
@@ -944,8 +980,28 @@ class MainActivity : AppCompatActivity() {
         fun getExchangeLock(): String = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
 
         @JavascriptInterface
-        fun clearExchangeLock() {
-            prefs.edit().remove(KEY_EXCHANGE_LOCK).remove("exchange_job").apply()
+        fun clearExchangeLock(confirmJson: String): String {
+            return try {
+                if (exchangeHiddenRunning) return "0"
+                val raw = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
+                if (raw.isBlank()) {
+                    prefs.edit().remove("exchange_job").apply()
+                    return "1"
+                }
+                val lock = JSONObject(raw)
+                val confirm = JSONObject(confirmJson)
+                val ok = ExchangeSafety.allowClearLock(
+                    lock.optString("mode"),
+                    confirm.optBoolean("balanceChecked"),
+                    confirm.optBoolean("historyChecked"),
+                    confirm.optString("manualResolved")
+                )
+                if (!ok) return "0"
+                prefs.edit().remove(KEY_EXCHANGE_LOCK).remove("exchange_job").apply()
+                "1"
+            } catch (_: Exception) {
+                "0"
+            }
         }
 
         @JavascriptInterface
@@ -976,22 +1032,18 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun openGiftLink(url: String) {
-            val uri = try {
-                Uri.parse(url)
-            } catch (_: Exception) {
-                return
-            }
-            if (uri.scheme != "https" || uri.host.isNullOrBlank()) return
-            runOnUiThread { webView.loadUrl(uri.toString()) }
+            if (!ExchangeSafety.isSafeHttpsGiftUrl(url)) return
+            val safe = url.trim()
+            runOnUiThread { webView.loadUrl(safe) }
         }
 
         @JavascriptInterface
         fun openGiftWalletLogin() {
             runOnUiThread {
                 val current = webView.url.orEmpty()
-                if (current.contains("://wallet.vaton.jp/sign_in") || current.contains("://wallet.vaton.jp/login")) return@runOnUiThread
+                if (ExchangeSafety.isOfficialVatonLogin(current)) return@runOnUiThread
                 prefs.edit().putBoolean(KEY_LOGIN_RECOVER, true).apply()
-                webView.loadUrl(VATON_SIGN_IN_URL)
+                webView.loadUrl(ExchangeSafety.LOGIN_URL)
             }
         }
 
@@ -1021,6 +1073,7 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun clearExchangeJob() {
+            if (exchangeHiddenRunning) return
             prefs.edit().remove("exchange_job").apply()
         }
 
@@ -1180,8 +1233,7 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_GIFT_MEMOS = "gift_link_memos"
         private const val KEY_GIFT_MEMO_SEQ = "gift_link_memo_seq"
         private const val KEY_LOGIN_RECOVER = "login_recover"
-        // 2026-11-06 の wallet.vaton.jp 本番バンドル。認証エラーは /sign_in へ遷移する。
-        private const val VATON_SIGN_IN_URL = "https://wallet.vaton.jp/sign_in"
+        // ログインURLの実体は ExchangeSafety.LOGIN_URL（公式の /sign_in）。
         private const val HOME_URL = "https://gift-wallet.pages.dev/"
         private const val HOME_URL_NOSPLASH = "https://gift-wallet.pages.dev/?nosplash=1"
         private const val POINT_LOGS_AUTO_URL =
