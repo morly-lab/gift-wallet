@@ -526,7 +526,7 @@ window.gwNeedUpdate=function(){
   var v='';try{v=String(window.GiftWallet&&GiftWallet.getAppVersion?GiftWallet.getAppVersion():'');}catch(e){}
   var o=document.createElement('div');o.id='gwNeedUpd';
   o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:100001;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:24px;');
-  o.innerHTML='<div style="background:#14141f;border:2px solid var(--gold);border-radius:20px;padding:26px 22px;text-align:center;color:#fff;max-width:330px;width:100%;"><div style="font-size:18px;font-weight:800;color:var(--gold);">アプリの更新が必要です</div><div style="font-size:13px;opacity:.9;margin:10px 0 18px;line-height:1.7;">この機能は新しい版で使えます。<br>'+(v?'いまの版 v'+v+'<br>':'')+'最新版 v1.4.19 を入れてください。</div><button type="button" id="gwNuGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:14px;font-size:15px;font-weight:800;">更新する</button><button type="button" id="gwNuNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:6px;">やめる</button></div>';
+  o.innerHTML='<div style="background:#14141f;border:2px solid var(--gold);border-radius:20px;padding:26px 22px;text-align:center;color:#fff;max-width:330px;width:100%;"><div style="font-size:18px;font-weight:800;color:var(--gold);">アプリの更新が必要です</div><div style="font-size:13px;opacity:.9;margin:10px 0 18px;line-height:1.7;">この機能は新しい版で使えます。<br>'+(v?'いまの版 v'+v+'<br>':'')+'最新版 v1.4.18 を入れてください。</div><button type="button" id="gwNuGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:14px;font-size:15px;font-weight:800;">更新する</button><button type="button" id="gwNuNo" style="width:100%;background:none;border:none;color:#aaa;padding:10px;font-size:12px;margin-top:6px;">やめる</button></div>';
   document.body.appendChild(o);
   document.getElementById('gwNuNo').onclick=function(){o.remove();};
   document.getElementById('gwNuGo').onclick=function(){o.remove();try{if(window.GiftWallet&&typeof GiftWallet.startInAppUpdate==='function'){window.gwUpdAsk();return;}}catch(e){}location.href='https://gift-wallet.pages.dev/install';};
@@ -600,65 +600,13 @@ window.gwNeedUpdate=function(){
       var k='gwAutoCsvAt',now=Date.now(),last=Number(localStorage.getItem(k)||0);
       if(now-last<3600000)return;
       localStorage.setItem(k,String(now));
-      window.__gwStartupPhase='updating';
       setBusy(true);window.gwSyncOverlay(true);
       window.GiftWallet.startGiftWalletCsvSyncAuto();
-      setTimeout(function(){setBusy(false);var o=document.getElementById('gwSyncOverlay');if(o)o.remove();if(window.__gwStartupPhase==='updating'&&window.gwNoteStartupCsv)window.gwNoteStartupCsv(false);},65000);
+      setTimeout(function(){setBusy(false);var o=document.getElementById('gwSyncOverlay');if(o)o.remove();},65000);
     }catch(e){}
   }
   function schedAuto(){setTimeout(autoSync,1800);}
   if(document.readyState==='complete')schedAuto();else window.addEventListener('load',schedAuto);
-  function todayBlankNow(){
-    try{
-      if(!window.GwStartupLogin) return false;
-      var now=new Date();
-      var mk=now.getFullYear()+'/'+String(now.getMonth()+1).padStart(2,'0');
-      var days=(typeof monthMap!=='undefined'&&monthMap[mk]&&monthMap[mk].days)||{};
-      return window.GwStartupLogin.todayIsBlank(days[now.getDate()]||[]);
-    }catch(e){ return false; }
-  }
-  function loginPrompted(){ try{ return sessionStorage.getItem('gwLoginNavOnce')==='1'; }catch(e){ return false; } }
-  function applyLoginDecision(d){
-    if(!d||!d.show||!window.GwStartupLogin) return;
-    try{ sessionStorage.setItem('gwLoginNavOnce','1'); }catch(e){}
-    var mounted=window.GwStartupLogin.mountLoginNotice(document);
-    if(!mounted.shown && document.getElementById('gwLoginCenter')) return;
-    if(!window.GwStartupLogin.shouldNavigateToLogin(location.href, d)) return;
-    try{
-      if(window.GiftWallet&&typeof window.GiftWallet.openGiftWalletLogin==='function'){
-        window.GiftWallet.openGiftWalletLogin();
-        return;
-      }
-    }catch(e2){}
-    location.assign(window.GwStartupLogin.LOGIN_URL);
-  }
-  window.gwStartupAuthResult=function(auth, startup){
-    var isStartup=startup===true||startup==='true';
-    if(!isStartup){
-      if(auth==='logged_out'&&window.gwLoginPrompt) window.gwLoginPrompt(false);
-      return;
-    }
-    window.__gwStartupPhase='idle';
-    if(!window.GwStartupLogin) return;
-    applyLoginDecision(window.GwStartupLogin.decideStartupLogin({
-      phase: auth==='logged_out'?'logged_out':'error',
-      todayBlank: todayBlankNow(),
-      auth: auth==='logged_out'?'out':'unknown',
-      alreadyPrompted: loginPrompted()
-    }));
-  };
-  window.gwNoteStartupCsv=function(ok){
-    if(window.__gwStartupPhase!=='updating') return;
-    window.__gwStartupPhase='idle';
-    if(!window.GwStartupLogin) return;
-    if(ok){ try{ sessionStorage.removeItem('gwLoginNavOnce'); }catch(e){} }
-    applyLoginDecision(window.GwStartupLogin.decideStartupLogin({
-      phase: ok?'done':'error',
-      todayBlank: todayBlankNow(),
-      auth: ok?'in':'unknown',
-      alreadyPrompted: loginPrompted()
-    }));
-  };
   window.gwMakeSyncBtn=function(){
     if(!hasBridge())return null;
     var b=document.createElement('button');b.type='button';b.className='gw-csv-mini';
@@ -1021,15 +969,6 @@ window.gwNeedUpdate=function(){
   </div>
 </div>
 
-<div class="page" id="page-links">
-  <div class="topnav">
-    <button type="button" class="back-btn" onclick="goPage('calendar')" aria-label="戻る">←</button>
-    <div class="topnav-title">リンク保管</div>
-    <div style="width:32px;"></div>
-  </div>
-  <div id="gwVaultApp" style="padding:12px 12px 28px;"></div>
-</div>
-
 <div id="toast" style="opacity:0"></div>
 
 <script>
@@ -1068,7 +1007,6 @@ function goPage(n){
   if(n==='nuki')renderNukiPage();
   if(n==='analytics')renderAnalytics();
   if(n==='expense')renderExpensePage();
-  if(n==='links'&&window.gwRenderVault)window.gwRenderVault();
   // タブアクティブ更新
   ['calendar','analytics'].forEach(t=>{
     const b=document.getElementById('tab-'+t);
@@ -1209,7 +1147,6 @@ window.importGiftWalletCsvText = function(text, name){
     const i = idx >= 0 ? idx : slotData.length;
     slotData[i] = { rows, headers:h, name, size: String(text || '').length, checked:true, type };
     directAggregate();
-    try { if (window.gwNoteStartupCsv) window.gwNoteStartupCsv(true); } catch (e3) {}
     if (window.__gwManualSync || name === 'ポイント履歴_今月.csv') { window.__gwManualSync = false; try { window.gwDonePopup(); } catch (e2) {} }
     return true;
   } catch (e) {
@@ -2893,10 +2830,6 @@ function aiQuickSend(text){
             <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg></span>
             <span class="smenu-grid-label">エラーID</span>
           </button>
-          <button class="smenu-grid-btn" onclick="goPage('links');collapseSwipeMenu()">
-            <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 007.1 0l2-2a5 5 0 00-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 00-7.1 0l-2 2a5 5 0 007.1 7.1l1.1-1.1"/></svg></span>
-            <span class="smenu-grid-label">リンク保管</span>
-          </button>
           <button class="smenu-grid-btn" onclick="goPage('expense');collapseSwipeMenu()">
             <span class="smenu-grid-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
             <span class="smenu-grid-label">支出内訳</span>
@@ -2936,7 +2869,7 @@ function aiQuickSend(text){
           <span class="smenu-fixed-label">ホーム</span>
         </button>
         <!-- b. 交換 -->
-        <button class="smenu-fixed-btn" id="tab-exchange" onclick="openExchange()" data-hint="指定アカウントで、選んだ種類の10,000円分だけ交換します">
+        <button class="smenu-fixed-btn" id="tab-exchange" onclick="openExchange()" data-hint="Amazon・au PAY・マジカ・WAONへの交換を始めます">
           <span class="smenu-fixed-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h12l-3-3"/><path d="M17 17H5l3 3"/></svg></span>
           <span class="smenu-fixed-label">交換</span>
         </button>
@@ -3422,10 +3355,83 @@ document.getElementById('qrModal').addEventListener('click',function(e){ if(e.ta
   sync(false);setTimeout(function(){sync(false);},300);
 })();
 </script>
-<script src="./js/exchange-guard.js"></script>
-<script src="./js/gift-vault.js"></script>
-<script src="./js/startup-login.js"></script>
-<script src="./js/gift-vault-ui.js"></script>
-<script src="./js/exchange-ui.js"></script>
+<script>
+// ===== 交換（Amazon / au PAY / マジカ / WAON） =====
+(function(){
+  var BRANDS=[{n:'Amazon',e:'🛒'},{n:'au PAY',e:'💳'},{n:'マジカ',e:'🅼'},{n:'WAON',e:'🟣'}];
+  var POINTS=[50,100,200,300,500,1000];
+  var sel={brand:'',points:0};
+  function closeX(){var o=document.getElementById('gwExModal');if(o)o.remove();}
+  function shell(inner){
+    closeX();
+    var o=document.createElement('div');o.id='gwExModal';
+    o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99990;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;');
+    o.innerHTML='<div style="background:#14141f;border:1px solid var(--gold);border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));width:100%;max-width:520px;color:#fff;">'+inner+'</div>';
+    o.addEventListener('click',function(e){if(e.target===o)closeX();});
+    document.body.appendChild(o);return o;
+  }
+  var BS='border:1px solid var(--gold);background:transparent;color:#fff;border-radius:12px;padding:14px 8px;font-size:15px;font-weight:800;cursor:pointer;';
+  function step1(){
+    var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:12px;">何に交換しますか？</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+    BRANDS.forEach(function(b,i){h+='<button type="button" data-i="'+i+'" style="'+BS+'">'+b.e+' '+b.n+'</button>';});
+    h+='</div><button type="button" id="gwExCancel" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;margin-top:6px;">閉じる</button>';
+    var o=shell(h);
+    o.querySelectorAll('button[data-i]').forEach(function(b){b.onclick=function(){sel.brand=BRANDS[b.getAttribute('data-i')].n;step2();};});
+    o.querySelector('#gwExCancel').onclick=closeX;
+  }
+  function step2(){
+    var h='<div style="font-size:12px;opacity:.8;">'+sel.brand+'</div><div style="font-size:16px;font-weight:800;color:var(--gold);margin:2px 0 10px;">何ポイント交換しますか？</div>';
+    POINTS.forEach(function(p,i){h+='<label style="display:flex;align-items:center;gap:10px;padding:11px 8px;border-bottom:1px solid rgba(255,255,255,.08);font-size:15px;"><input type="radio" name="gwExPt" value="'+p+'"'+(i===1?' checked':'')+' style="width:20px;height:20px;accent-color:#d4a843;">'+p.toLocaleString()+' ポイント</label>';});
+    h+='<label style="display:flex;align-items:center;gap:10px;padding:11px 8px;font-size:15px;"><input type="radio" name="gwExPt" value="other" style="width:20px;height:20px;accent-color:#d4a843;">その他 <input type="number" id="gwExOther" inputmode="numeric" placeholder="数字" style="flex:1;background:#0d0d16;border:1px solid #444;border-radius:8px;color:#fff;padding:8px;font-size:14px;"></label>';
+    h+='<div style="font-size:11px;opacity:.7;margin:8px 0;">交換画面まで自動で進みます。選択から交換まで裏で自動で進めます（押す前に3秒待ち、止められます）。</div>';
+    h+='<button type="button" id="gwExGo" style="width:100%;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;border:none;border-radius:999px;padding:12px;font-size:15px;font-weight:800;cursor:pointer;">交換画面へ進む</button><button type="button" id="gwExBack" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">もどる</button>';
+    var o=shell(h);
+    o.querySelector('#gwExBack').onclick=step1;
+    o.querySelector('#gwExGo').onclick=function(){
+      var r=o.querySelector('input[name=gwExPt]:checked');var v=r?r.value:'';
+      if(v==='other')v=o.querySelector('#gwExOther').value;
+      var n=parseInt(v,10);
+      if(!n||n<=0){if(typeof showToast==='function')showToast('ポイントを選んでください');return;}
+      sel.points=n;
+      if(window.GiftWallet&&typeof window.GiftWallet.startExchange==='function'){closeX();window.GiftWallet.startExchange(sel.brand,String(n));}
+      else{window.gwNeedUpdate();}
+    };
+  }
+  window.gwExOverlay=function(msg){
+    var o=document.getElementById('gwExBusy');
+    if(msg===null||msg===undefined){if(o)o.remove();return;}
+    if(!o){
+      o=document.createElement('div');o.id='gwExBusy';
+      o.setAttribute('style','position:fixed;left:0;top:0;right:0;bottom:0;z-index:99995;background:rgba(0,0,0,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;text-align:center;padding:24px;');
+      o.innerHTML='<div style="width:44px;height:44px;border:4px solid rgba(255,255,255,.2);border-top-color:#d4a843;border-radius:50%;animation:gwExSpin 1s linear infinite;"></div><div style="font-size:16px;font-weight:800;color:#d4a843;">交換中…</div><div id="gwExMsg" style="font-size:13px;line-height:1.6;"></div><button type="button" id="gwExStopBtn" style="border:none;background:#e0443a;color:#fff;border-radius:999px;padding:10px 22px;font-size:14px;font-weight:800;">止める</button><style>@keyframes gwExSpin{to{transform:rotate(360deg)}}</style>';
+      document.body.appendChild(o);
+      o.querySelector('#gwExStopBtn').onclick=function(){if(window.GiftWallet&&GiftWallet.stopExchange)GiftWallet.stopExchange();};
+    }
+    o.querySelector('#gwExMsg').textContent=msg;
+  };
+  window.gwExResult=function(list,brand,pts){
+    if(!list.length){var h0='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:8px;">交換が終わりました</div><div style="font-size:13px;line-height:1.6;">'+brand+' '+Number(pts).toLocaleString()+'ポイントを交換しました。コードやリンクは自動で取れなかったので、vatonの「マイギフト」で確認してください。</div><button type="button" id="gwExMy" style="width:100%;margin-top:12px;border:none;border-radius:999px;padding:12px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">vatonを開く</button><button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';var o0=shell(h0);o0.querySelector('#gwExMy').onclick=function(){closeX();if(GiftWallet.openVatonVisible)GiftWallet.openVatonVisible();};o0.querySelector('#gwExClose').onclick=closeX;return;}
+    var text=list.map(function(x){return brand+' '+Number(pts).toLocaleString()+'pt\n'+x;}).join('\n\n');
+    var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:6px;">交換が終わりました</div><div style="font-size:12px;opacity:.8;margin-bottom:8px;">'+brand+' '+Number(pts).toLocaleString()+'ポイント</div><div style="background:#0d0d16;border-radius:10px;padding:10px;font-size:12px;word-break:break-all;max-height:30vh;overflow:auto;white-space:pre-wrap;"></div><div style="display:flex;gap:8px;margin-top:12px;"><button type="button" id="gwExCp" style="flex:1;border:none;border-radius:999px;padding:11px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">コピー</button><button type="button" id="gwExMemo" style="flex:1;border:1px solid var(--gold);border-radius:999px;padding:11px;font-weight:800;background:none;color:#fff;">メモに保存</button></div><button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';
+    var o=shell(h);
+    o.querySelector('div[style*="pre-wrap"]').textContent=text;
+    o.querySelector('#gwExCp').onclick=function(){GiftWallet.copyText(text);};
+    o.querySelector('#gwExMemo').onclick=function(){GiftWallet.shareText(text);};
+    o.querySelector('#gwExClose').onclick=closeX;
+  };
+  window.gwExFail=function(msg,brand,pts){
+    var parts=String(msg).split('\n\n[診断]\n');var head=parts[0],dg=parts[1]||'';
+    var h='<div style="font-size:16px;font-weight:800;color:var(--gold);margin-bottom:8px;">うまく進めませんでした</div><div style="font-size:13px;line-height:1.6;" id="gwExHead"></div><div style="font-size:12px;opacity:.8;margin:8px 0;">画面を表示して、見ながら続けることもできます。</div><button type="button" id="gwExVis" style="width:100%;border:none;border-radius:999px;padding:12px;font-weight:800;background:linear-gradient(135deg,var(--gold-h),var(--gold));color:#000;">画面を表示して続ける</button>'+(dg?'<button type="button" id="gwExDg" style="width:100%;margin-top:8px;border:1px solid var(--gold);border-radius:999px;padding:10px;font-weight:800;background:none;color:#fff;">状況をコピー（ギフトくんに送る用）</button>':'')+'<button type="button" id="gwExClose" style="width:100%;background:none;border:none;color:#aaa;padding:12px;font-size:12px;">閉じる</button>';
+    var o=shell(h);
+    o.querySelector('#gwExHead').textContent=head;
+    var chk=head.indexOf('マイギフト')>=0;
+    if(chk)o.querySelector('#gwExVis').textContent='vatonを開いてマイギフトを確認';
+    o.querySelector('#gwExVis').onclick=function(){closeX();if(chk){if(GiftWallet.openVatonVisible)GiftWallet.openVatonVisible();}else if(GiftWallet.startExchangeVisible)GiftWallet.startExchangeVisible(brand,String(pts));};
+    var d=o.querySelector('#gwExDg');if(d)d.onclick=function(){GiftWallet.copyText(brand+' '+pts+'\n'+dg);};
+    o.querySelector('#gwExClose').onclick=function(){if(GiftWallet.clearExchangeJob)GiftWallet.clearExchangeJob();closeX();};
+  };
+  window.openExchange=step1;
+})();
+</script>
 </body>
 </html>

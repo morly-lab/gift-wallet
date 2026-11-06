@@ -1,14 +1,13 @@
 /dist/gift-wallet.apk
   Content-Type: application/vnd.android.package-archive
-  Content-Disposition: attachment; filename="gift-wallet-1.4.19.apk"
-  Cache-Control: public, max-age=0, must-revalidate
-
-/dist/gift-wallet-1.4.19.apk
-  Content-Type: application/vnd.android.package-archive
-  Content-Disposition: attachment; filename="gift-wallet-1.4.19.apk"
+  Content-Disposition: attachment; filename="gift-wallet-1.4.2.apk"
   Cache-Control: public, max-age=0, must-revalidate
 
 /dist/gift-wallet-1.4.2.apk
   Content-Type: application/vnd.android.package-archive
   Content-Disposition: attachment; filename="gift-wallet-1.4.2.apk"
+  Cache-Control: public, max-age=0, must-revalidate
+
+/dist/gift-wallet-1.4.19.withdrawn.txt
+  Content-Type: text/plain; charset=utf-8
   Cache-Control: public, max-age=0, must-revalidate
