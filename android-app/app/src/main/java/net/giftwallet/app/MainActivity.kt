@@ -343,9 +343,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var exchangeHiddenRunning = false
-    private var exchangeToken = 0
-    private var loginReturnScheduled = false
-    private val assetJsCache = HashMap<String, String>()
 
     private fun webCall(fn: String, args: String) {
         webView.evaluateJavascript(
@@ -353,82 +350,28 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun assetJs(name: String): String {
-        return assetJsCache.getOrPut(name) {
-            assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    private fun beginExchange(brand: String, points: String, hidden: Boolean) {
+        val job = JSONObject().put("brand", brand).put("points", points)
+            .put("at", System.currentTimeMillis()).put("hidden", hidden)
+        prefs.edit().putString("exchange_job", job.toString()).apply()
+        if (hidden) {
+            exchangeHiddenRunning = true
+            syncWebView?.evaluateJavascript("window.__gwExStop=false;", null)
+            webCall("gwExOverlay", JSONObject.quote("交換の準備をしています…"))
+            syncWebView?.loadUrl("https://wallet.vaton.jp/point/brands")
+            syncHandler.postDelayed({
+                if (exchangeHiddenRunning) {
+                    endHiddenExchange(keepJob = true)
+                    webCall("gwExFail", JSONObject.quote("時間がかかっています。交換済みの可能性があるので、vatonのマイギフトを確認してください") + "," + JSONObject.quote(brand) + "," + JSONObject.quote(points))
+                }
+            }, 150_000L)
+        } else {
+            webView.loadUrl("https://wallet.vaton.jp/point/brands")
         }
-    }
-
-    private fun currentLockMode(): String? {
-        val raw = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
-        if (raw.isBlank()) return null
-        return try {
-            JSONObject(raw).optString("mode").ifBlank { "unknown" }
-        } catch (_: Exception) {
-            "unknown"
-        }
-    }
-
-    private fun holdExchange(reason: String) {
-        val mode = ExchangeSafety.mergeLockMode(currentLockMode(), "unknown") ?: return
-        val lock = JSONObject()
-            .put("mode", mode)
-            .put("reason", ExchangeSafety.redact(reason))
-            .put("pressed", true)
-        prefs.edit().putString(KEY_EXCHANGE_LOCK, lock.toString()).apply()
-    }
-
-    private fun beginExchangeJob(raw: String) {
-        val job = try {
-            JSONObject(raw)
-        } catch (_: Exception) {
-            webCall("gwExFail", JSONObject.quote("依頼内容を確認できません") + ",\"\",\"\"")
-            return
-        }
-        val account = job.optString("account")
-        val kind = job.optString("kind")
-        val count = job.optInt("count", 0)
-        val face = job.optInt("faceYen", 0)
-        if (!ExchangeSafety.acceptJob(account, kind, count, face)) {
-            webCall("gwExFail", JSONObject.quote("依頼内容を確認できません") + "," + JSONObject.quote(kind) + ",\"\"")
-            return
-        }
-        val blocked = ExchangeSafety.canStart(exchangeHiddenRunning, currentLockMode())
-        if (blocked != null) {
-            val existingLock = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
-            if (existingLock.isNotBlank()) {
-                webCall("gwExBlocked", JSONObject.quote(existingLock))
-            } else {
-                webCall("gwExFail", JSONObject.quote("交換の途中です。終わってからもう一度選んでください") + "," + JSONObject.quote(kind) + ",\"\"")
-            }
-            return
-        }
-        val clean = JSONObject()
-            .put("account", account)
-            .put("kind", kind)
-            .put("count", count)
-            .put("faceYen", ExchangeSafety.FACE_YEN)
-            .put("at", System.currentTimeMillis())
-            .put("hidden", true)
-        prefs.edit().putString("exchange_job", clean.toString()).apply()
-        val token = ++exchangeToken
-        exchangeHiddenRunning = true
-        syncWebView?.evaluateJavascript("window.__gwExStop=false;", null)
-        webCall("gwExOverlay", JSONObject.quote("交換の準備をしています…"))
-        syncWebView?.loadUrl("https://wallet.vaton.jp/point/brands")
-        syncHandler.postDelayed({
-            if (exchangeHiddenRunning && token == exchangeToken) {
-                endHiddenExchange(keepJob = true)
-                val reason = "時間がかかっています。交換済みの可能性があるので、残高とマイギフトを確認してください"
-                holdExchange(reason)
-                webCall("gwExFail", JSONObject.quote(reason) + "," + JSONObject.quote(kind) + ",\"10000\"")
-            }
-        }, 150_000L)
     }
 
     private fun endHiddenExchange(keepJob: Boolean = false) {
         exchangeHiddenRunning = false
-        exchangeToken++
         syncWebView?.evaluateJavascript("window.__gwExStop=true;", null)
         syncWebView?.loadUrl("about:blank")
         if (!keepJob) prefs.edit().remove("exchange_job").apply()
@@ -539,9 +482,7 @@ class MainActivity : AppCompatActivity() {
         // Safety reset if download never arrives
         syncHandler.postDelayed({
             if (csvSyncInFlight) {
-                val startup = csvSyncSilent && !pastActive
                 finishSyncUi()
-                if (startup) webCall("gwStartupAuthResult", JSONObject.quote("error") + ",true")
                 Toast.makeText(this, "更新に時間がかかっています。もう一度お試しください", Toast.LENGTH_LONG).show()
             }
         }, 60_000L)
@@ -612,17 +553,7 @@ class MainActivity : AppCompatActivity() {
             url.contains("wallet.vaton.jp") -> {
                 view.evaluateJavascript(VATON_CSV_JS, null)
                 view.evaluateJavascript(VATON_BALANCE_JS, null)
-                try {
-                    val bundled = listOf(
-                        "exchange-guard.js",
-                        "gift-vault.js",
-                        "startup-login.js",
-                        "vaton-exchange.js",
-                        "login-return.js"
-                    ).joinToString("\n") { assetJs(it) }
-                    view.evaluateJavascript(bundled, null)
-                } catch (_: Exception) {
-                }
+                view.evaluateJavascript(VATON_EXCHANGE_JS, null)
             }
             url.contains("gift-wallet.pages.dev") -> {
                 view.evaluateJavascript(HOME_INJECT_JS, null)
@@ -820,14 +751,14 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun notifyCsvLoginRequired() {
             runOnUiThread {
-                val startup = csvSyncSilent && !pastActive
                 csvSyncSilent = false
                 if (pastActive) endPast(false)
                 finishSyncUi()
+                // Ask the home page to show a "please log in" dialog; fall back to a toast.
                 webView.evaluateJavascript(
-                    "(function(){try{if(window.gwStartupAuthResult){window.gwStartupAuthResult('logged_out'," + startup + ");return '1';}if(window.gwLoginPrompt){window.gwLoginPrompt(false);return '1';}return '0';}catch(e){return '0';}})();"
+                    "(function(){try{return window.gwLoginPrompt?String(window.gwLoginPrompt()):'no';}catch(e){return 'no';}})();"
                 ) { r ->
-                    if (r == null || !r.contains("1")) {
+                    if (r == null || !r.contains("true")) {
                         Toast.makeText(
                             this@MainActivity,
                             "ギフトウォレットにログインしてください",
@@ -841,14 +772,11 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun notifyCsvSyncFailed(message: String) {
             runOnUiThread {
-                val startup = csvSyncSilent && !pastActive
                 csvSyncSilent = false
-                val safe = ExchangeSafety.redact(message).take(180)
-                android.util.Log.w("GWPAST", "fail " + (pastCurrent ?: "-") + " " + safe)
+                android.util.Log.w("GWPAST", "fail " + (pastCurrent ?: "-") + " " + message)
                 finishSyncUi()
-                if (startup) webCall("gwStartupAuthResult", JSONObject.quote("error") + ",true")
                 if (pastActive) { pastAdvance(false); return@runOnUiThread }
-                val msg = safe.ifBlank { "CSVの自動取得に失敗しました" }
+                val msg = message.ifBlank { "CSVの自動取得に失敗しました" }
                 Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
             }
         }
@@ -889,22 +817,12 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun startExchange(brand: String, points: String) {
-            runOnUiThread {
-                webCall(
-                    "gwExFail",
-                    JSONObject.quote("この交換は停止しています。アプリの更新後に、種類と回数を選び直してください") + "," + JSONObject.quote(brand) + "," + JSONObject.quote(points)
-                )
-            }
+            runOnUiThread { beginExchange(brand, points, true) }
         }
 
         @JavascriptInterface
         fun startExchangeVisible(brand: String, points: String) {
-            startExchange(brand, points)
-        }
-
-        @JavascriptInterface
-        fun startExchangeJob(json: String) {
-            runOnUiThread { beginExchangeJob(json) }
+            runOnUiThread { beginExchange(brand, points, false) }
         }
 
         @JavascriptInterface
@@ -917,12 +835,7 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun stopExchange() {
-            runOnUiThread {
-                val reason = "途中で止めました。残高と履歴を確認するまで再交換しません"
-                holdExchange(reason)
-                endHiddenExchange(keepJob = true)
-                webCall("gwExFail", JSONObject.quote(reason) + ",\"\",\"\"")
-            }
+            runOnUiThread { endHiddenExchange() }
         }
 
         @JavascriptInterface
@@ -933,18 +846,10 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun exchangeDone(json: String) {
             runOnUiThread {
-                if (!exchangeHiddenRunning) return@runOnUiThread
-                val obj = try {
-                    JSONObject(json)
-                } catch (_: Exception) {
-                    JSONObject()
-                }
-                val count = obj.optInt("count", 0).coerceIn(0, 20)
-                val kind = obj.optString("kind")
-                val safeKind = if (kind in ExchangeSafety.KINDS) kind else ""
+                val job = try { JSONObject(prefs.getString("exchange_job", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+                val brand = job.optString("brand"); val pts = job.optString("points")
                 endHiddenExchange()
-                val payload = JSONObject().put("count", count).put("kind", safeKind)
-                webCall("gwExResult", JSONObject.quote(payload.toString()))
+                webCall("gwExResult", json + "," + JSONObject.quote(brand) + "," + JSONObject.quote(pts))
             }
         }
 
@@ -952,119 +857,9 @@ class MainActivity : AppCompatActivity() {
         fun exchangeFailed(msg: String) {
             runOnUiThread {
                 val job = try { JSONObject(prefs.getString("exchange_job", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
-                val kind = job.optString("kind").ifBlank { job.optString("brand") }
-                if ((prefs.getString(KEY_EXCHANGE_LOCK, "") ?: "").isBlank()) {
-                    holdExchange("結果を確認できません。残高と履歴を見るまで再送しません")
-                }
+                val brand = job.optString("brand"); val pts = job.optString("points")
                 endHiddenExchange(keepJob = true)
-                val safe = ExchangeSafety.redact(msg).take(500)
-                webCall("gwExFail", JSONObject.quote(safe) + "," + JSONObject.quote(kind) + ",\"\"")
-            }
-        }
-
-        @JavascriptInterface
-        fun setExchangeLock(json: String) {
-            try {
-                val obj = JSONObject(json)
-                val mode = ExchangeSafety.mergeLockMode(currentLockMode(), obj.optString("mode")) ?: return
-                val stored = JSONObject()
-                    .put("mode", mode)
-                    .put("reason", ExchangeSafety.redact(obj.optString("reason")).take(300))
-                    .put("pressed", obj.optBoolean("pressed"))
-                prefs.edit().putString(KEY_EXCHANGE_LOCK, stored.toString()).apply()
-            } catch (_: Exception) {
-            }
-        }
-
-        @JavascriptInterface
-        fun getExchangeLock(): String = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
-
-        @JavascriptInterface
-        fun clearExchangeLock(confirmJson: String): String {
-            return try {
-                if (exchangeHiddenRunning) return "0"
-                val raw = prefs.getString(KEY_EXCHANGE_LOCK, "") ?: ""
-                if (raw.isBlank()) {
-                    prefs.edit().remove("exchange_job").apply()
-                    return "1"
-                }
-                val lock = JSONObject(raw)
-                val confirm = JSONObject(confirmJson)
-                val ok = ExchangeSafety.allowClearLock(
-                    lock.optString("mode"),
-                    confirm.optBoolean("balanceChecked"),
-                    confirm.optBoolean("historyChecked"),
-                    confirm.optString("manualResolved")
-                )
-                if (!ok) return "0"
-                prefs.edit().remove(KEY_EXCHANGE_LOCK).remove("exchange_job").apply()
-                "1"
-            } catch (_: Exception) {
-                "0"
-            }
-        }
-
-        @JavascriptInterface
-        fun getGiftMemos(): String = prefs.getString(KEY_GIFT_MEMOS, "[]") ?: "[]"
-
-        @JavascriptInterface
-        fun saveGiftMemos(json: String) {
-            if (json.length > 500_000) return
-            try {
-                JSONArray(json)
-            } catch (_: Exception) {
-                return
-            }
-            prefs.edit().putString(KEY_GIFT_MEMOS, json).apply()
-        }
-
-        @JavascriptInterface
-        fun getGiftMemoSeq(): String = prefs.getString(KEY_GIFT_MEMO_SEQ, "0") ?: "0"
-
-        @JavascriptInterface
-        fun saveGiftMemoSeq(value: String) {
-            val n = value.toIntOrNull() ?: return
-            if (n < 0 || n > 1_000_000) return
-            val cur = prefs.getString(KEY_GIFT_MEMO_SEQ, "0")?.toIntOrNull() ?: 0
-            if (n < cur) return
-            prefs.edit().putString(KEY_GIFT_MEMO_SEQ, n.toString()).apply()
-        }
-
-        @JavascriptInterface
-        fun openGiftLink(url: String) {
-            if (!ExchangeSafety.isSafeHttpsGiftUrl(url)) return
-            val safe = url.trim()
-            runOnUiThread { webView.loadUrl(safe) }
-        }
-
-        @JavascriptInterface
-        fun openGiftWalletLogin() {
-            runOnUiThread {
-                val current = webView.url.orEmpty()
-                if (ExchangeSafety.isOfficialVatonLogin(current)) return@runOnUiThread
-                prefs.edit().putBoolean(KEY_LOGIN_RECOVER, true).apply()
-                webView.loadUrl(ExchangeSafety.LOGIN_URL)
-            }
-        }
-
-        @JavascriptInterface
-        fun loginRecoverPending(): String = if (prefs.getBoolean(KEY_LOGIN_RECOVER, false)) "1" else "0"
-
-        @JavascriptInterface
-        fun notifyLoginRecovered() {
-            runOnUiThread {
-                if (!prefs.getBoolean(KEY_LOGIN_RECOVER, false)) return@runOnUiThread
-                if (loginReturnScheduled) return@runOnUiThread
-                loginReturnScheduled = true
-                prefs.edit().putBoolean(KEY_LOGIN_RECOVER, false).apply()
-                webView.loadUrl(HOME_URL_NOSPLASH)
-                syncHandler.postDelayed({
-                    loginReturnScheduled = false
-                    if (!csvSyncInFlight && !pastActive) {
-                        csvSyncSilent = true
-                        startCsvSync()
-                    }
-                }, 1500)
+                webCall("gwExFail", JSONObject.quote(msg) + "," + JSONObject.quote(brand) + "," + JSONObject.quote(pts))
             }
         }
 
@@ -1073,7 +868,6 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun clearExchangeJob() {
-            if (exchangeHiddenRunning) return
             prefs.edit().remove("exchange_job").apply()
         }
 
@@ -1229,11 +1023,6 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_LAST_CSV_SYNC_MS = "last_csv_sync_ms"
         private const val KEY_WALLET_BALANCE = "wallet_balance"
         private const val KEY_CHARGED_URLS = "charged_gift_urls"
-        private const val KEY_EXCHANGE_LOCK = "exchange_lock"
-        private const val KEY_GIFT_MEMOS = "gift_link_memos"
-        private const val KEY_GIFT_MEMO_SEQ = "gift_link_memo_seq"
-        private const val KEY_LOGIN_RECOVER = "login_recover"
-        // ログインURLの実体は ExchangeSafety.LOGIN_URL（公式の /sign_in）。
         private const val HOME_URL = "https://gift-wallet.pages.dev/"
         private const val HOME_URL_NOSPLASH = "https://gift-wallet.pages.dev/?nosplash=1"
         private const val POINT_LOGS_AUTO_URL =
@@ -2028,7 +1817,7 @@ private val VATON_CSV_JS = """
                     var openBtn = findBtn('利用実績CSVダウンロード');
                     if (!openBtn) {
                       if (tries >= 30) {
-                        notifyFail('ポイント履歴の画面を確認できませんでした');
+                        notifyLogin();
                         clearAutoHash();
                         window.__gwAutoCsvStarted = false;
                         return;
@@ -2160,3 +1949,220 @@ private val VATON_BALANCE_JS = """
         private val CHARGE_AUTO_JS = """(function(){ /* charge auto-tap removed */ })();""".trimIndent()
     }
 }
+
+
+private val VATON_EXCHANGE_JS = """
+            (function(){
+              if (window.__gwEx) return;
+              var G = window.GiftWallet;
+              if (!G || !G.getExchangeJob) return;
+              var raw = '';
+              try { raw = G.getExchangeJob(); } catch (e) {}
+              if (!raw) return;
+              var J = null;
+              try { J = JSON.parse(raw); } catch (e) {}
+              if (!J) return;
+              if (location.hash && location.hash.indexOf('gw-auto-csv') >= 0) return;
+              if (!J.at || Date.now() - J.at > 1800000) { try { G.clearExchangeJob(); } catch (e) {} return; }
+              window.__gwEx = true;
+              var HID = !!J.hidden;
+              var KEYS = { 'Amazon': ['amazon','アマゾン'], 'au PAY': ['au pay','aupay'], 'マジカ': ['majica','マジカ'], 'WAON': ['waon','ワオン'] };
+              var keys = KEYS[J.brand] || [String(J.brand).toLowerCase()];
+              var NG = /交換する|交換を確定|確定|購入|申し込|はい|OK|同意して/;
+              var FINAL1 = /^(この内容で)?交換(する|を確定する?|を実行する?|確定|実行)?${'$'}|^交換(する|を確定する?|を実行する?)/;
+              var FINAL2 = /^(はい|OK|確定|交換する|交換を確定する?)${'$'}/;
+              var ST = {};
+              try { ST = JSON.parse(sessionStorage.getItem('gwExS') || '{}'); } catch (e) {}
+              function save(){ try { sessionStorage.setItem('gwExS', JSON.stringify(ST)); } catch (e) {} }
+              var clicked = {};
+              var armed = false;
+              var finished = false;
+
+              function stopped(){ return !!window.__gwExStop; }
+              function say(msg){
+                try { if (HID) G.exchangeProgress(msg); else { var st = document.getElementById('gw-ex-status'); if (st) st.textContent = msg; } } catch (e) {}
+              }
+              function fire(el){
+                try {
+                  ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){
+                    el.dispatchEvent(new MouseEvent(t, { bubbles:true, cancelable:true, view:window }));
+                  });
+                } catch (e) { try { el.click(); } catch (e2) {} }
+              }
+              function numText(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+              function textOf(el){ return (el.innerText || el.alt || el.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim(); }
+              function matches(test, maxLen){
+                var all = document.querySelectorAll('a,button,li,div[role="button"],[onclick],img,div,p,span');
+                var arr = [];
+                for (var i = 0; i < all.length; i++) {
+                  var el = all[i];
+                  if (el.closest && el.closest('#gw-ex-panel')) continue;
+                  var t = textOf(el);
+                  if (!t || t.length > maxLen) continue;
+                  if (!test(t)) continue;
+                  arr.push({ el: el, len: t.length });
+                }
+                arr.sort(function(a, b){ return a.len - b.len; });
+                return arr.map(function(x){ return x.el; });
+              }
+              function bestMatch(test, maxLen, idx){ var m = matches(test, maxLen); return m[idx || 0] || null; }
+              function tapTarget(el){
+                var c = el.closest ? el.closest('a,button,[role="button"],[onclick],li') : null;
+                return c || el;
+              }
+              function diag(){
+                var t = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').slice(0, 700);
+                return location.href + '\n' + t;
+              }
+              var BAD = /twitter|facebook|instagram|line\.me|apple\.com|play\.google|youtube|vaton|google/;
+              function collect(){
+                var out = [];
+                var as = document.querySelectorAll('a[href]');
+                for (var i = 0; i < as.length; i++) {
+                  var h = as[i].href || '';
+                  if (/^https?:\/\//.test(h) && !BAD.test(h) && out.indexOf(h) < 0) out.push(h);
+                }
+                var txt = document.body.innerText || '';
+                (txt.match(/https?:\/\/[^\s"'<>]+/g) || []).forEach(function(u){ if (!BAD.test(u) && out.indexOf(u) < 0) out.push(u); });
+                (txt.match(/\b[A-Z0-9]{4}(?:-[A-Z0-9]{4}){2,5}\b/g) || []).forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
+                (txt.match(/(?<![0-9])[0-9]{12,20}(?![0-9])/g) || []).forEach(function(c){ if (out.indexOf(c) < 0) out.push(c); });
+                return out.slice(0, 8);
+              }
+              function pageText(){ return (document.body ? document.body.innerText : '').replace(/\s+/g, ' '); }
+              function fail(msg){
+                if (finished) return; finished = true;
+                try { if (HID) G.exchangeFailed(msg + '\n\n[診断]\n' + diag()); else say(msg); } catch (e) {}
+              }
+              function finishWith(c){
+                if (finished) return; finished = true;
+                c.forEach(function(x){ try { G.saveExchangeResult(J.brand + ' ' + numText(J.points) + 'pt\n' + x); } catch (e) {} });
+                ST = {}; save();
+                if (HID) { try { G.exchangeDone(JSON.stringify(c)); } catch (e) {} }
+                else say(c.length ? c.length + '件を保存しました。コピーやメモ保存ができます' : '交換は完了しました。コードはvatonの「マイギフト」で確認してください');
+              }
+              var baseline = [];
+              function afterComplete(k){
+                if (finished || stopped()) return;
+                if (k === 1 && !ST.usedGift) {
+                  baseline = collect();
+                  var ub = bestMatch(function(t){ return /^ギフトを使用する${'$'}/.test(t); }, 14);
+                  if (ub) { ST.usedGift = true; save(); say('交換できました。コードを開いています…'); fire(tapTarget(ub)); }
+                }
+                if (ST.usedGift || k > 3) {
+                  var c = collect().filter(function(x){ return baseline.indexOf(x) < 0; });
+                  if (c.length) { finishWith(c); return; }
+                }
+                if (k > 20) { finishWith([]); return; }
+                setTimeout(function(){ afterComplete(k + 1); }, 1000);
+              }
+              var completeStarted = false;
+              function waitComplete(k){
+                if (finished || stopped()) return;
+                if (/ギフトを交換しました/.test(pageText())) {
+                  if (!completeStarted) { completeStarted = true; say('交換が完了しました'); afterComplete(0); }
+                  return;
+                }
+                if (k > 40) { fail('交換ボタンは押しましたが、完了画面を確認できませんでした。vatonの「マイギフト」を確認してください'); return; }
+                setTimeout(function(){ waitComplete(k + 1); }, 1000);
+              }
+              function arm(btn){
+                armed = true; var left = 3;
+                (function cd(){
+                  if (stopped()) return;
+                  if (left <= 0) {
+                    fire(btn); ST.finalCount = (ST.finalCount || 0) + 1; save();
+                    say('「' + textOf(btn) + '」を押しました。結果を待っています…');
+                    var sb = document.getElementById('gw-ex-stop'); if (sb) sb.style.display = 'none';
+                    waitComplete(0);
+                    return;
+                  }
+                  say(left + '秒後に「' + textOf(btn) + '」を自動で押します');
+                  var sb2 = document.getElementById('gw-ex-stop'); if (sb2) sb2.style.display = 'inline-block';
+                  left--; setTimeout(cd, 1000);
+                })();
+              }
+              var lastMove = Date.now(), clk = {}, att = {};
+              function tryClick(key, finder, msg){
+                if (clk[key] && Date.now() - clk[key] < 5000) return;
+                var c = att[key] || 0;
+                if (c >= 4) return;
+                var e = finder(c);
+                if (!e) return;
+                if (msg) say(msg);
+                clk[key] = Date.now(); att[key] = c + 1; lastMove = Date.now();
+                try { e.scrollIntoView({block:'center'}); } catch (x) {}
+                fire(tapTarget(e));
+              }
+              function tick(n){
+                if (finished || stopped()) return;
+                if ((ST.finalCount || 0) > 0) { if (!armed) { armed = true; waitComplete(0); } return; }
+                if (n > 200 || Date.now() - lastMove > 25000) { fail('交換画面で先に進めませんでした'); return; }
+                try {
+                  if (!armed) {
+                    var txt = pageText();
+                    var path = location.pathname.replace(/\/+${'$'}/, '');
+                    if (/よろしいですか/.test(txt)) {
+                      var fb = bestMatch(function(t){ return /^交換する${'$'}/.test(t); }, 10);
+                      if (fb) { lastMove = Date.now(); arm(fb); }
+                    } else if (/ギフト詳細/.test(txt)) {
+                      tryClick('detail', function(){ return bestMatch(function(t){ return /^交換にすすむ${'$'}/.test(t); }, 10); }, '交換へ進んでいます…');
+                    } else if (/\/point\/brands${'$'}/.test(path)) {
+                      tryClick('list', function(i){
+                        return bestMatch(function(t){
+                          var l = t.toLowerCase();
+                          for (var k = 0; k < keys.length; k++) if (l.indexOf(keys[k]) >= 0) return true;
+                          return false;
+                        }, 40, i);
+                      }, J.brand + 'を選んでいます…');
+                    } else {
+                      var pr = String(J.points);
+                      var re = new RegExp('(^|[^0-9])' + pr + '円分');
+                      tryClick('opt', function(i){
+                        return bestMatch(function(t){ return re.test(t.replace(/,/g, '')) && t.length < 40; }, 40, i);
+                      }, numText(J.points) + 'ポイントを選んでいます…');
+                    }
+                  }
+                } catch (e) {}
+                setTimeout(function(){ tick(n + 1); }, 800);
+              }
+
+              function el(tag, css, html){ var e = document.createElement(tag); if (css) e.style.cssText = css; if (html) e.innerHTML = html; return e; }
+              var BTN = 'border:none;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;margin:3px 3px 0 0;';
+              function build(){
+                if (HID || document.getElementById('gw-ex-panel')) return;
+                var p = el('div', 'position:fixed;left:8px;right:8px;bottom:8px;z-index:2147483646;background:rgba(20,20,31,.96);color:#fff;border:1px solid #d4a843;border-radius:14px;padding:10px 12px;font-family:sans-serif;font-size:12px;line-height:1.5;box-shadow:0 6px 24px rgba(0,0,0,.5);max-height:45vh;overflow:auto;');
+                p.id = 'gw-ex-panel';
+                var head = el('div', 'font-weight:800;color:#d4a843;font-size:13px;', '交換：' + J.brand + ' ' + numText(J.points) + 'ポイント');
+                var status = el('div', 'color:#ffd36b;font-weight:800;margin-top:4px;', ''); status.id = 'gw-ex-status';
+                var list = el('div', 'margin-top:6px;word-break:break-all;');
+                var bar = el('div', '');
+                var bStop = el('button', BTN + 'background:#e0443a;color:#fff;display:none;', '止める'); bStop.id = 'gw-ex-stop';
+                bStop.onclick = function(){ window.__gwExStop = true; bStop.style.display = 'none'; say('自動を止めました。続きはご自分で押してください'); };
+                var bGet = el('button', BTN + 'background:#d4a843;color:#000;', 'コードを取得');
+                var bCopy = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'コピー');
+                var bShare = el('button', BTN + 'background:#2a2a3a;color:#fff;', 'メモに保存');
+                var bEnd = el('button', BTN + 'background:none;color:#aaa;border:1px solid #555;', '終了');
+                [bStop, bGet, bCopy, bShare, bEnd].forEach(function(b){ b.type = 'button'; bar.appendChild(b); });
+                p.appendChild(head); p.appendChild(status); p.appendChild(list); p.appendChild(bar);
+                document.body.appendChild(p);
+                function all(){ try { return JSON.parse(G.getExchangeResults()); } catch (e) { return []; } }
+                function show(){
+                  var a = all();
+                  list.innerHTML = a.length ? '保存済み ' + a.length + '件<br>' + a.map(function(x){ return x.replace(/</g,'&lt;'); }).join('<br>') : '';
+                }
+                bGet.onclick = function(){
+                  var c = collect();
+                  if (!c.length) { G.showToast('まだコードやリンクが見つかりません'); return; }
+                  c.forEach(function(x){ G.saveExchangeResult(J.brand + ' ' + numText(J.points) + 'pt\n' + x); });
+                  show(); G.showToast(c.length + '件を保存しました');
+                };
+                bCopy.onclick = function(){ var a = all(); if (!a.length) { G.showToast('保存済みのコードがありません'); return; } G.copyText(a.join('\n\n')); };
+                bShare.onclick = function(){ var a = all(); if (!a.length) { G.showToast('保存済みのコードがありません'); return; } G.shareText(a.join('\n\n')); };
+                bEnd.onclick = function(){ G.clearExchangeJob(); p.remove(); G.goHome(); };
+                show();
+              }
+              function init(){ build(); tick(0); }
+              if (document.body) init(); else document.addEventListener('DOMContentLoaded', init);
+              setInterval(function(){ if (document.body && !document.getElementById('gw-ex-panel')) build(); }, 1500);
+            })();
+        """.trimIndent()
