@@ -12,6 +12,10 @@ Chrome 単体では他サイトのボタンを自動で押せません。この�
 
 ## ビルド
 
+配布用APKは、このリポジトリの `dist/` にある既存ファイルを消さずに、新しい版だけを追加する。
+
+現在のソースの版は **1.4.19（versionCode 35）**。`dist/` に置いてある 1.4.18 までのAPKは、この版のビルド結果ではない。
+
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 cd android-app
@@ -19,3 +23,5 @@ cd android-app
 ```
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
+
+署名済みの配布用APKは `assembleRelease` と既存の署名設定が必要。署名設定がこの環境に無い場合は、debug APKを配布版として `dist/` に置かない。
