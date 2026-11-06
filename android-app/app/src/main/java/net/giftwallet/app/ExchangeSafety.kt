@@ -40,11 +40,12 @@ object ExchangeSafety {
         return faceYen in faces
     }
 
+    /** 空のセッションは同一とみなさない。取り違えを検知できないまま交換を始めない。 */
     fun sessionContinuity(startKey: String?, nowKey: String?): Boolean {
         val start = startKey.orEmpty()
         val now = nowKey.orEmpty()
-        if (start.isEmpty() && now.isEmpty()) return true
-        return start.isNotEmpty() && start == now
+        if (start.isEmpty() || now.isEmpty()) return false
+        return start == now
     }
 
     fun authCookieMaterial(header: String?): String {

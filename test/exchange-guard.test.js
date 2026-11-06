@@ -12,8 +12,8 @@ function base(extra) {
     selectedFace: 50,
     points: 50,
     loggedIn: true,
-    sessionStart: '',
-    sessionNow: ''
+    sessionStart: 'sess-test',
+    sessionNow: 'sess-test'
   }, extra || {});
 }
 
@@ -89,17 +89,21 @@ test('AmazonとWAONはポイント範囲で、固定額面とは表示しない'
   assert.equal(guard.parsePointAmount('0', 1, 10000).ok, false);
   assert.equal(guard.parsePointAmount('10001', 1, 10000).ok, false);
   assert.equal(guard.parsePointAmount('12.5', 1, 10000).ok, false);
-  const ok = guard.decideExchange({ kind: 'Amazon', count: 1, balance: 5000, selectedPoints: 1234, points: 1234, loggedIn: true, sessionStart: '', sessionNow: '' });
+  const ok = guard.decideExchange({ kind: 'Amazon', count: 1, balance: 5000, selectedPoints: 1234, points: 1234, loggedIn: true, sessionStart: 'sess-test', sessionNow: 'sess-test' });
   assert.equal(ok.action, 'proceed');
   assert.equal(ok.faceYen, null);
-  const bad = guard.decideExchange({ kind: 'Amazon', count: 1, balance: 5000, selectedPoints: 1234, points: 1200, loggedIn: true, sessionStart: '', sessionNow: '' });
+  const bad = guard.decideExchange({ kind: 'Amazon', count: 1, balance: 5000, selectedPoints: 1234, points: 1200, loggedIn: true, sessionStart: 'sess-test', sessionNow: 'sess-test' });
   assert.equal(bad.code, 'points_mismatch');
 });
 
 test('セッションが変わったら中断し、同じキーなら続ける', function () {
   assert.equal(guard.sessionContinuity('aaa', 'bbb').ok, false);
-  assert.equal(guard.sessionContinuity('', 'aaa').ok, false);
+  assert.equal(guard.sessionContinuity('', 'aaa').code, 'session_unknown');
+  assert.equal(guard.sessionContinuity('', '').code, 'session_unknown');
   assert.equal(guard.sessionContinuity('aaa', 'aaa').identified, true);
+  const unknown = guard.decideExchange(base({ sessionStart: '', sessionNow: '' }));
+  assert.equal(unknown.code, 'session_unknown');
+  assert.equal(unknown.action, 'stop');
   const changed = guard.decideExchange(base({ sessionStart: 'aaa', sessionNow: 'bbb' }));
   assert.equal(changed.code, 'session_changed');
   const same = guard.decideExchange(base({ sessionStart: 'aaa', sessionNow: 'aaa' }));

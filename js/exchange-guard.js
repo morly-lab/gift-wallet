@@ -126,8 +126,8 @@
   function sessionContinuity(startKey, nowKey) {
     var start = startKey == null ? '' : String(startKey);
     var now = nowKey == null ? '' : String(nowKey);
-    if (!start && !now) return { ok: true, identified: false };
-    if (start && now && start === now) return { ok: true, identified: true };
+    if (!start || !now) return { ok: false, identified: false, code: 'session_unknown' };
+    if (start === now) return { ok: true, identified: true };
     return { ok: false, identified: false, code: 'session_changed' };
   }
 
@@ -250,6 +250,9 @@
     }
     var cont = sessionContinuity(input.sessionStart, input.sessionNow);
     if (!cont.ok) {
+      if (cont.code === 'session_unknown') {
+        return stop('session_unknown', 'ログイン中のセッションを確認できないので、交換を止めました。アカウントの取り違えを防げない状態では始めません。');
+      }
       return stop('session_changed', 'ログイン中のセッションが変わった可能性があるので、交換を止めました。入り直してから確認してください。');
     }
     if (!count || count < 1 || count > 20) {

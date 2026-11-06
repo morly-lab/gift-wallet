@@ -33,7 +33,8 @@ class ExchangeSafetyTest {
         assertTrue(ExchangeSafety.sessionContinuity(a, a))
         assertFalse(ExchangeSafety.sessionContinuity(a, c))
         assertFalse(ExchangeSafety.sessionContinuity("", a))
-        assertTrue(ExchangeSafety.sessionContinuity("", ""))
+        assertFalse(ExchangeSafety.sessionContinuity("", ""))
+        assertFalse(ExchangeSafety.sessionContinuity(a, ""))
     }
 
     @Test

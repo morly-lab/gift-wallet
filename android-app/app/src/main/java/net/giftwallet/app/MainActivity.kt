@@ -18,8 +18,11 @@ import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
+import android.webkit.ServiceWorkerClient
+import android.webkit.ServiceWorkerController
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -81,6 +84,12 @@ class MainActivity : AppCompatActivity() {
         webView = findViewById(R.id.webView)
         setupWebView(webView)
         setupSyncWebView()
+        installTrialHooks()
+        if (!prefs.getBoolean(KEY_TRIAL_CACHE_CLEARED, false)) {
+            // HTTPキャッシュだけ消す。localStorage と Cookie は残す。
+            webView.clearCache(true)
+            prefs.edit().putBoolean(KEY_TRIAL_CACHE_CLEARED, true).apply()
+        }
 
         // Cold start / process recreate: always show splash (no persistent skip)
         webView.loadUrl(HOME_URL)
@@ -108,6 +117,7 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView(wv: WebView) {
+        // 表示中のWebViewと裏側の同期WebViewは、同じ CookieManager を使う。
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
 
@@ -118,7 +128,8 @@ class MainActivity : AppCompatActivity() {
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            cacheMode = WebSettings.LOAD_DEFAULT
+            // 試験版は公開ページのキャッシュを使わない。localStorage は残る。
+            cacheMode = WebSettings.LOAD_NO_CACHE
             userAgentString = userAgentString.replace("; wv", "")
             setSupportZoom(true)
             builtInZoomControls = false
@@ -174,6 +185,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         wv.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest
+            ): WebResourceResponse? {
+                return interceptTrial(request)
+            }
+
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest
@@ -193,10 +211,72 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 maybeInjectHelpers(view, url)
+                markTrialPage(view, url)
                 maybeFlushPendingCsv(url)
                 if (view === webView) maybeShowUpdateDone()
             }
         }
+    }
+
+    private fun installTrialHooks() {
+        if (Build.VERSION.SDK_INT < 24) return
+        val controller = ServiceWorkerController.getInstance()
+        controller.serviceWorkerWebSettings.cacheMode = WebSettings.LOAD_NO_CACHE
+        controller.setServiceWorkerClient(object : ServiceWorkerClient() {
+            override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+                return interceptTrial(request)
+            }
+        })
+    }
+
+    private fun interceptTrial(request: WebResourceRequest): WebResourceResponse? {
+        val uri = request.url ?: return null
+        if (!TrialSite.isTrialHost(uri.host)) return null
+        val path = uri.path ?: "/"
+        if (TrialSite.isApkPath(path)) {
+            return trialText(404, "Not Found", "試験版では本番のAPKを渡しません。\n")
+        }
+        val relative = TrialSite.assetRelative(path) ?: return trialText(404, "Not Found", "この試験版にないファイルです。\n")
+        return try {
+            val stream = assets.open("trial-www/$relative")
+            val headers = mapOf(
+                "Cache-Control" to "no-store",
+                "X-Content-Type-Options" to "nosniff",
+                "X-GiftWallet-Trial" to TrialSite.UI_MARK
+            )
+            WebResourceResponse(
+                TrialSite.mime(relative),
+                if (TrialSite.isText(relative)) "utf-8" else null,
+                200,
+                "OK",
+                headers,
+                stream
+            )
+        } catch (_: Exception) {
+            trialText(404, "Not Found", "この試験版にないファイルです。\n")
+        }
+    }
+
+    private fun trialText(status: Int, reason: String, body: String): WebResourceResponse {
+        return WebResourceResponse(
+            "text/plain",
+            "utf-8",
+            status,
+            reason,
+            mapOf("Cache-Control" to "no-store", "X-Content-Type-Options" to "nosniff"),
+            body.byteInputStream(Charsets.UTF_8)
+        )
+    }
+
+    private fun markTrialPage(view: WebView?, url: String?) {
+        if (view == null || url.isNullOrBlank()) return
+        val host = try {
+            Uri.parse(url).host
+        } catch (_: Exception) {
+            null
+        }
+        if (!TrialSite.isTrialHost(host)) return
+        view.evaluateJavascript(TRIAL_MARK_JS, null)
     }
 
     private fun curVersion(): String = try {
@@ -214,74 +294,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startInAppUpdate() {
-        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
-            webCall("gwUpdNeedPerm", "")
-            try {
-                startActivity(
-                    Intent(
-                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:$packageName")
-                    )
-                )
-            } catch (_: Exception) {}
-            return
-        }
-        webCall("gwUpdProgress", "0")
-        ioExecutor.execute {
-            try {
-                val dir = java.io.File(cacheDir, "update").apply { mkdirs() }
-                val f = java.io.File(dir, "gw.apk")
-                if (f.exists()) f.delete()
-                val conn = URL("https://gift-wallet.pages.dev/dist/gift-wallet.apk?t=" + System.currentTimeMillis())
-                    .openConnection() as HttpURLConnection
-                conn.connectTimeout = 15000
-                conn.readTimeout = 30000
-                val total = conn.contentLength
-                var got = 0L
-                var last = -1
-                conn.inputStream.use { ins ->
-                    f.outputStream().use { out ->
-                        val buf = ByteArray(32768)
-                        while (true) {
-                            val n = ins.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                            got += n
-                            if (total > 0) {
-                                val pct = (got * 100 / total).toInt()
-                                if (pct != last) {
-                                    last = pct
-                                    runOnUiThread { webCall("gwUpdProgress", pct.toString()) }
-                                }
-                            }
-                        }
-                    }
-                }
-                val head = ByteArray(2)
-                f.inputStream().use { it.read(head) }
-                if (f.length() < 1_000_000 || head[0] != 'P'.code.toByte() || head[1] != 'K'.code.toByte()) {
-                    throw RuntimeException("bad apk")
-                }
-                prefs.edit().putString("upd_from", curVersion()).apply()
-                runOnUiThread {
-                    try {
-                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                            this, "$packageName.fileprovider", f
-                        )
-                        val i = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/vnd.android.package-archive")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        webCall("gwUpdInstalling", "")
-                        startActivity(i)
-                    } catch (e: Exception) {
-                        webCall("gwUpdFail", JSONObject.quote(e.javaClass.simpleName))
-                    }
-                }
-            } catch (e: Exception) {
-                runOnUiThread { webCall("gwUpdFail", JSONObject.quote(e.javaClass.simpleName)) }
-            }
-        }
+        // 試験版は本番の latest APK を取らない。公開中の 1.4.18 へ戻さない。
+        Toast.makeText(this, "試験版では本番の更新を入れません", Toast.LENGTH_LONG).show()
+        webCall("gwUpdFail", JSONObject.quote("試験版では本番の更新を入れません"))
     }
 
     private fun handleDownload(
@@ -291,6 +306,15 @@ class MainActivity : AppCompatActivity() {
         mimeType: String?
     ) {
         if (url.isNullOrBlank()) return
+        val parsed = try {
+            Uri.parse(url)
+        } catch (_: Exception) {
+            null
+        }
+        if (parsed != null && TrialSite.isTrialHost(parsed.host) && TrialSite.isApkPath(parsed.path)) {
+            Toast.makeText(this, "試験版では本番のAPKを取得しません", Toast.LENGTH_LONG).show()
+            return
+        }
         val guessed = URLUtil.guessFileName(url, contentDisposition, mimeType)
         val name = if (guessed.contains(".csv", ignoreCase = true) ||
             (mimeType != null && mimeType.contains("csv"))
@@ -409,6 +433,13 @@ class MainActivity : AppCompatActivity() {
         val sessionKey = ExchangeSafety.sessionKey(
             android.webkit.CookieManager.getInstance().getCookie("https://wallet.vaton.jp")
         )
+        if (!ExchangeSafety.sessionContinuity(sessionKey, sessionKey)) {
+            webCall(
+                "gwExFail",
+                JSONObject.quote("ログイン中のセッションを確認できないので、交換を止めました。アカウントの取り違えを防げない状態では始めません。") + "," + JSONObject.quote(kind) + ",\"\""
+            )
+            return
+        }
         val clean = JSONObject()
             .put("kind", kind)
             .put("count", count)
@@ -1160,22 +1191,11 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun openAppUpdate() {
             runOnUiThread {
-                try {
-                    // 直APKではなくインストール案内ページへ（説明→ダウンロード）
-                    val installUrl = "https://gift-wallet.pages.dev/install"
-                    webView.loadUrl(installUrl)
-                    Toast.makeText(
-                        this@MainActivity,
-                        "インストール案内を開きます",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                } catch (_: Exception) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "更新ページを開けませんでした",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+                Toast.makeText(
+                    this@MainActivity,
+                    "試験版では本番のインストール案内を開きません",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
 
@@ -1268,6 +1288,32 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_GIFT_MEMOS = "gift_link_memos"
         private const val KEY_GIFT_MEMO_SEQ = "gift_link_memo_seq"
         private const val KEY_LOGIN_RECOVER = "login_recover"
+        private const val KEY_TRIAL_CACHE_CLEARED = "trial_cache_cleared"
+        private val TRIAL_MARK_JS = """
+            (function(){
+              try {
+                if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                  navigator.serviceWorker.getRegistrations().then(function(regs){
+                    regs.forEach(function(r){ r.unregister(); });
+                  });
+                }
+              } catch (e) {}
+              if (!document.querySelector('meta[name="gw-ui"]')) {
+                var meta = document.createElement('meta');
+                meta.name = 'gw-ui';
+                meta.content = '1.4.20-trial';
+                document.head.appendChild(meta);
+              }
+              if (document.getElementById('gwTrialMark')) return;
+              var nav = document.querySelector('.topnav');
+              if (!nav) return;
+              var mark = document.createElement('div');
+              mark.id = 'gwTrialMark';
+              mark.textContent = '非公開試験';
+              mark.setAttribute('style', 'font-size:10px;font-weight:800;color:#1a1200;background:#f0c060;border-radius:999px;padding:2px 8px;margin-left:6px;');
+              nav.appendChild(mark);
+            })();
+        """.trimIndent()
         // ログインURLの実体は ExchangeSafety.LOGIN_URL（公式の /sign_in）。
         private const val HOME_URL = "https://gift-wallet.pages.dev/"
         private const val HOME_URL_NOSPLASH = "https://gift-wallet.pages.dev/?nosplash=1"

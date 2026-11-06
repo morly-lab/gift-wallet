@@ -104,6 +104,9 @@
   function stepKind() {
     var h = '<div style="font-size:16px;font-weight:800;color:#d4a843;margin-bottom:8px;">何に交換しますか？</div>';
     h += '<div style="font-size:12px;line-height:1.6;opacity:.8;margin-bottom:10px;">いまアプリ内でログインしているギフトウォレットだけを使います。ログイン情報はこのアプリに保存しません。</div>';
+    if (!sessionReady()) {
+      h += '<div style="font-size:12px;line-height:1.6;color:#f0c060;margin-bottom:8px;">セッションを確認できるまで、種類と額面は見られますが交換は始めません。</div>';
+    }
     h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
     Guard.KINDS.forEach(function (k) {
       var off = k.available === false;
@@ -217,9 +220,23 @@
     o.querySelector('#gwExBack').onclick = stepFace;
   }
 
+  function sessionReady() {
+    try {
+      if (!(root.GiftWallet && root.GiftWallet.currentSessionKey)) return false;
+      var key = String(root.GiftWallet.currentSessionKey() || '');
+      return /^[a-f0-9]{64}$/.test(key);
+    } catch (e) {
+      return false;
+    }
+  }
+
   function startJob() {
     var lock = readLock();
     if (lock) { lockSheet(lock); return; }
+    if (!sessionReady()) {
+      if (root.showToast) root.showToast('ログイン中のセッションを確認できないので、交換を始めません');
+      return;
+    }
     var choice = currentChoice(sel.kind);
     var job;
     if (sel.inputUnit === 'points') {

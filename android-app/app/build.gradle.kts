@@ -11,7 +11,9 @@ android {
         applicationId = "net.giftwallet.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 36
+        // 導入済み 1.4.19 と同じ versionCode。上書きでも公式 1.4.19 へ戻すときもアンインストール不要。
+        // versionName は画面の機能判定が 1.4.20 になるようにする。
+        versionCode = 35
         versionName = "1.4.20"
     }
 
@@ -34,6 +36,45 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/trial-assets"))
+}
+
+val copyTrialWeb = tasks.register<Copy>("copyTrialWeb") {
+    val webRoot = rootProject.projectDir.parentFile
+    into(layout.buildDirectory.dir("generated/trial-assets/trial-www"))
+    from(webRoot) {
+        include(
+            "index.html",
+            "install.html",
+            "manifest.json",
+            "favicon.ico",
+            "favicon-192.png",
+            "favicon-512.png",
+            "apple-touch-icon.png",
+            "guide.html",
+            "update_notes.html",
+            "cushin-setup.html",
+            "error-userids.html",
+            "apn.html"
+        )
+    }
+    from(webRoot.resolve("js")) {
+        include(
+            "exchange-guard.js",
+            "exchange-ui.js",
+            "gift-vault.js",
+            "gift-vault-ui.js",
+            "startup-login.js"
+        )
+        into("js")
+    }
+}
+
+tasks.configureEach {
+    if (name == "preBuild" || (name.startsWith("merge") && name.endsWith("Assets"))) {
+        dependsOn(copyTrialWeb)
     }
 }
 
