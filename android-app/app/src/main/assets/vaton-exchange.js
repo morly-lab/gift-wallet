@@ -37,7 +37,8 @@
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (line.length > 80) continue;
-      if (!/10[,，]?000\s*円/.test(line)) continue;
+      var fm = line.match(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{2,7})\s*円/);
+      if (!fm) continue;
       var low = line.toLowerCase();
       var kindHit = false;
       for (var k = 0; k < kindKeys.length; k++) if (low.indexOf(kindKeys[k]) >= 0) kindHit = true;
@@ -45,7 +46,7 @@
       if (!pm) continue;
       var pts = parseInt(pm[1].replace(/,/g, ''), 10);
       if (isNaN(pts)) continue;
-      face = 10000;
+      face = parseInt(fm ? fm[1].replace(/,/g, '') : '0', 10) || null;
       points = pts;
       if (kindHit) break;
     }
@@ -56,12 +57,16 @@
     var guard = (typeof globalThis !== 'undefined' && globalThis.GwExchangeGuard) || null;
     var keys = job && job.kind ? (guard ? guard.kindKeys(job.kind) : [String(job.kind).toLowerCase()]) : [];
     var offer = readOffer(text, keys);
+    var body = String(text || '');
+    var balance = readBalance(body);
+    var loggedOut = /パスワード/.test(body) && /ログイン/.test(body);
     return {
-      text: String(text || ''),
+      text: body,
       buttons: buttons || [],
       hrefs: hrefs || [],
-      accountSeen: accountSeen(text, guard ? guard.ACCOUNTS : ['モーリー', 'めぱん', 'モリ母']),
-      balance: readBalance(text),
+      loggedIn: !loggedOut && balance != null,
+      stockAvailable: !/在庫切れ/.test(body),
+      balance: balance,
       faceYen: offer.faceYen,
       points: offer.points,
       fetching: /取得中/.test(String(text || '')),
@@ -124,7 +129,7 @@
     if (!raw) return;
     var job = null;
     try { job = JSON.parse(raw); } catch (e2) { return; }
-    if (!job || !job.account || Number(job.faceYen) !== guard.FACE_YEN || !job.kind || !job.count) {
+    if (!job || !job.kind || !job.count || !(Number(job.faceYen) > 0 || job.inputUnit === 'points')) {
       try { G.clearExchangeJob(); } catch (e3) {}
       return;
     }
@@ -138,7 +143,7 @@
     mark.style.display = 'none';
     if (doc.body) doc.body.appendChild(mark);
 
-    var state = { phase: 'check', account: job.account, kind: job.kind, count: Number(job.count), index: 0, saved: [] };
+    var state = { phase: 'check', kind: job.kind, count: Number(job.count), faceYen: job.faceYen || null, points: job.points || null, inputUnit: job.inputUnit || '', sessionKey: job.sessionKey || '', index: 0, saved: [] };
     var stall = 0;
     var lastPhase = '';
 
@@ -185,6 +190,14 @@
       if (env.__gwExStop) return;
       var text = doc.body ? (doc.body.innerText || doc.body.textContent || '') : '';
       var page = snapshotFromText(text, buttonLabels(), job, hrefs());
+      page.sessionNow = '';
+      try { if (G.currentSessionKey) page.sessionNow = G.currentSessionKey() || ''; } catch (eKey) {}
+      if (job.sessionKey) page.sessionStart = job.sessionKey;
+      try {
+        if (G.setOfferStock && /1abacf75-d225-4688-9e11-2213fcc12a92/.test(location.href)) {
+          G.setOfferStock('majica', /在庫切れ/.test(text) ? 'out' : 'in');
+        }
+      } catch (eStock) {}
       if (state.phase === lastPhase) stall++;
       else { stall = 0; lastPhase = state.phase; }
       if (stall > 40) page.timedOut = true;
@@ -204,7 +217,7 @@
             links.forEach(function (link) {
               v.add({
                 link: link,
-                faceYen: guard.FACE_YEN,
+                faceYen: job.faceYen || null,
                 kind: job.kind,
                 expiry: expiry,
                 account: job.account,

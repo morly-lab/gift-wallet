@@ -9,8 +9,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   var KEY = 'gwGiftMemos';
   var SEQ = 'gwGiftMemoSeq';
-  var ACCOUNTS = ['モーリー', 'めぱん', 'モリ母', '未確認'];
-  var KINDS = ['au PAY', 'majica', 'Vポイント', 'kyash', 'Amazon', 'WAON'];
+  var KINDS = ['au PAY', 'majica', 'Kyash', 'Amazon', 'Vポイント', 'WAON'];
 
   function validateLink(raw) {
     var s = String(raw || '').trim();
@@ -56,9 +55,15 @@
   }
 
   function normalizeAccount(value, fallback) {
-    var s = cleanText(value, 20);
+    var s = cleanText(value, 40);
     if (!s) return fallback || '未確認';
-    if (ACCOUNTS.indexOf(s) < 0) return { error: 'bad_account' };
+    return s;
+  }
+
+  function normalizeSessionKey(value) {
+    var s = cleanText(value, 80);
+    if (!s) return null;
+    if (!/^[a-f0-9]{64}$/.test(s)) return null;
     return s;
   }
 
@@ -99,6 +104,7 @@
       kind: kind,
       expiry: exp && exp.error ? null : (exp ? exp.value : null),
       account: account,
+      sessionKey: normalizeSessionKey(row.sessionKey),
       status: status,
       createdAt: cleanText(row.createdAt, 40)
     };
@@ -145,7 +151,11 @@
       filter = filter || {};
       return readRaw().records.filter(function (r) {
         if (filter.kind && filter.kind !== 'すべて' && r.kind !== filter.kind) return false;
-        if (filter.account && filter.account !== 'すべて' && r.account !== filter.account) return false;
+        if (filter.session === 'current') {
+          if (!filter.sessionKey || r.sessionKey !== filter.sessionKey) return false;
+        } else if (filter.session === 'unknown') {
+          if (r.sessionKey) return false;
+        } else if (filter.account && filter.account !== 'すべて' && r.account !== filter.account) return false;
         if (filter.status && filter.status !== 'すべて' && r.status !== filter.status) return false;
         return true;
       });
@@ -178,6 +188,7 @@
         kind: kind,
         expiry: exp ? exp.value : null,
         account: account,
+        sessionKey: normalizeSessionKey(input.sessionKey),
         status: status,
         createdAt: input.createdAt || new Date().toISOString()
       };
@@ -202,6 +213,7 @@
         kind: cur.kind,
         expiry: cur.expiry,
         account: cur.account,
+        sessionKey: cur.sessionKey || null,
         status: cur.status,
         createdAt: cur.createdAt
       };
@@ -293,6 +305,7 @@
         kind: rec.kind,
         expiry: rec.expiry,
         account: rec.account,
+        sessionKey: rec.sessionKey,
         status: rec.status,
         allowEmptyFace: true,
         createdAt: rec.createdAt
@@ -323,7 +336,6 @@
   return {
     KEY: KEY,
     SEQ: SEQ,
-    ACCOUNTS: ACCOUNTS,
     KINDS: KINDS,
     validateLink: validateLink,
     linkKey: linkKey,

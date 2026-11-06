@@ -111,7 +111,10 @@
     if (!host) return;
     var v = vault();
     importLegacy(v);
-    var filter = root.__gwVaultFilter || { kind: 'すべて', account: 'すべて', status: 'すべて' };
+    var sessionKey = '';
+    try { if (root.GiftWallet && root.GiftWallet.currentSessionKey) sessionKey = root.GiftWallet.currentSessionKey() || ''; } catch (e) {}
+    var filter = root.__gwVaultFilter || { kind: 'すべて', session: sessionKey ? 'current' : 'unknown', status: 'すべて' };
+    filter.sessionKey = sessionKey;
     var editing = root.__gwVaultEdit || null;
     clear(host);
 
@@ -130,13 +133,17 @@
       return sel;
     }
     filters.appendChild(tinySelect('kind', ['すべて'].concat(Vault.KINDS).concat(['未確認'])));
-    filters.appendChild(tinySelect('account', ['すべて'].concat(Vault.ACCOUNTS)));
+    filters.appendChild(tinySelect('session', ['current', 'unknown']));
     filters.appendChild(tinySelect('status', ['すべて', 'unused', 'used']));
     var statusSel = filters.lastChild;
     Array.prototype.forEach.call(statusSel.options, function (o) {
       if (o.value === 'unused') o.textContent = '未使用';
       if (o.value === 'used') o.textContent = '使用済み';
       if (o.value === 'すべて') o.textContent = '状態';
+    });
+    Array.prototype.forEach.call(filters.children[1].options, function (o) {
+      if (o.value === 'current') o.textContent = 'このログイン';
+      if (o.value === 'unknown') o.textContent = '未確認';
     });
     host.appendChild(filters);
 
@@ -219,8 +226,9 @@
     faceInput.placeholder = '10000';
     var expInput = el('input', 'width:100%;background:#0d0d16;color:#fff;border:1px solid #444;border-radius:10px;padding:10px;font-size:14px;');
     expInput.placeholder = '空欄は未確認';
-    var kindSel = selectBox(['au PAY', 'majica', 'Vポイント', 'kyash', 'Amazon', 'WAON'], 'kyash');
-    var accSel = selectBox(Vault.ACCOUNTS, '未確認');
+    var kindSel = selectBox(['au PAY', 'majica', 'Kyash', 'Amazon', 'Vポイント', 'WAON'], 'au PAY');
+    var accInput = el('input', 'width:100%;background:#0d0d16;color:#fff;border:1px solid #444;border-radius:10px;padding:10px;font-size:14px;');
+    accInput.placeholder = '空欄は未確認';
     if (editing) {
       var found = v.list().filter(function (r) { return r.id === editing; })[0];
       if (found) {
@@ -228,14 +236,14 @@
         faceInput.value = found.faceYen || '';
         expInput.value = found.expiry || '';
         kindSel.value = found.kind;
-        accSel.value = found.account;
+        accInput.value = found.account === '未確認' ? '' : (found.account || '');
       }
     }
     form.appendChild(field('リンク', linkInput));
     form.appendChild(field('額面（円）', faceInput));
     form.appendChild(field('種類', kindSel));
     form.appendChild(field('期限（画面で見た日付だけ。不明は空欄）', expInput));
-    form.appendChild(field('アカウント', accSel));
+    form.appendChild(field('メモ名（任意）', accInput));
     var save = el('button', 'width:100%;border:none;border-radius:999px;padding:12px;font-size:15px;font-weight:800;background:linear-gradient(135deg,#f5d070,#d4a843);color:#000;min-height:48px;', editing ? '修正を保存' : '追加する');
     save.type = 'button';
     save.addEventListener('click', function () {
@@ -244,7 +252,8 @@
         faceYen: faceInput.value,
         kind: kindSel.value,
         expiry: expInput.value,
-        account: accSel.value
+        account: accInput.value,
+        sessionKey: sessionKey
       };
       var res = editing ? v.update(editing, payload) : v.add(payload);
       if (!res.ok) {

@@ -14,7 +14,7 @@ Chrome 単体では他サイトのボタンを自動で押せません。この�
 
 配布用APKは、このリポジトリの `dist/` にある既存ファイルを消さずに、新しい版だけを追加する。
 
-現在のソースの版は **1.4.19（versionCode 35）**。署名済みの配布ファイルは `dist/gift-wallet-1.4.19.apk` と、アプリ内更新が取る `dist/gift-wallet.apk` です。それより前の版のAPKも `dist/` に残しています。
+現在のソースの版は **1.4.20（versionCode 36）**。署名済みの配布ファイルは、まだ `dist/gift-wallet-1.4.19.apk` とアプリ内更新用の `dist/gift-wallet.apk` です。1.4.20 の署名は別途行い、それより前の版のAPKも `dist/` に残しています。
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk

@@ -1,24 +1,95 @@
 /*
- * 交換の判断だけを行う。画面から読めた額面・必要ポイント・残高・アカウント以外では進めない。
- * kyash=10,000pt / majica=9,700pt は現場報告であり、クリック量の固定値には使わない。
- * 実サイトのDOMで成功したとは扱わない。値が取れなければ止める。
+ * 交換の判断だけを行う。ログイン中の画面から読めた額面・必要ポイント・残高以外では進めない。
+ * 額面の候補一覧は、確認済みとして渡されたものか、認証済み画面の文面から読めたものだけ。
+ * 未確認の種類に額面を推測して足さない。実サイトのDOMで成功したとは扱わない。
  */
 (function (root, factory) {
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.GwExchangeGuard = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  var ACCOUNTS = ['モーリー', 'めぱん', 'モリ母'];
-  var FACE_YEN = 10000;
-  var FIELD_REPORT_POINTS = { kyash: 10000, majica: 9700 };
+  function fixedOffers(faces) {
+    return faces.map(function (face) { return { faceYen: face, points: face, officialFace: true }; });
+  }
+  // 2026-11-07 の公式商品一覧。固定額面だけをボタンにする。範囲商品の入力単位は未確認。
+  var CONFIRMED_OFFERS = {
+    'au PAY': {
+      mode: 'fixed',
+      options: fixedOffers([50, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000]),
+      note: {
+        confirmedOn: '2026-11-07',
+        itemsUrl: 'https://wallet.vaton.jp/point/brands/916f4fa7-60fd-4afb-a97b-abc969f09a9d/items',
+        expiryRule: '交換から5か月後の月末',
+        chargeLimitNote: '月間10万円はau PAYギフトカードのチャージ上限です。交換できる回数の上限ではありません。'
+      }
+    },
+    'majica': {
+      mode: 'fixed',
+      inStock: false,
+      options: fixedOffers([300, 500, 1000, 3000, 5000, 10000]),
+      note: {
+        confirmedOn: '2026-11-07',
+        officialName: 'ドン・キホーテ、アピタ、ピアゴ',
+        itemsUrl: 'https://wallet.vaton.jp/point/brands/1abacf75-d225-4688-9e11-2213fcc12a92/items',
+        expiryRule: '交換から6カ月後の前日',
+        rewardNote: '3%還元の表示は、必要ポイントの即時割引ではありません。1万円は10000ポイントです。'
+      }
+    },
+    'Kyash': {
+      mode: 'fixed',
+      options: fixedOffers([200, 500, 1000, 10000]),
+      note: {
+        confirmedOn: '2026-11-07',
+        itemsUrl: 'https://wallet.vaton.jp/point/brands/08d5d3be-760b-4746-9505-0846b240ba97/items'
+      }
+    },
+    'Amazon': {
+      mode: 'range',
+      minPoints: 1,
+      maxPoints: 10000,
+      unitConfirmed: true,
+      inputUnit: 'points',
+      note: {
+        confirmedOn: '2026-11-07',
+        itemsUrl: 'https://wallet.vaton.jp/point/brands/4a1e8d0d-41ab-4c44-bac4-0a95661fde6a/items',
+        detailUrl: 'https://wallet.vaton.jp/point/items/8c984412-68f1-44db-a0f2-ba740533ae6d',
+        rewardNote: '1%還元の表示は、必要ポイントの割引ではありません。'
+      }
+    },
+    'WAON': {
+      mode: 'range',
+      minPoints: 1,
+      maxPoints: 10000,
+      unitConfirmed: true,
+      inputUnit: 'points',
+      note: {
+        confirmedOn: '2026-11-07',
+        itemsUrl: 'https://wallet.vaton.jp/point/brands/53b28503-6b28-4441-9c16-6f912af88373/items',
+        detailUrl: 'https://wallet.vaton.jp/point/items/a53c9863-5c99-4b32-a37e-cb2f68225230',
+        officialName: 'WAON POINT eギフト'
+      }
+    }
+  };
+  var RANGE_PRESETS = [1000, 3000, 5000, 10000];
   var KINDS = [
-    { id: 'au PAY', keys: ['au pay', 'aupay'] },
-    { id: 'majica', keys: ['majica', 'マジカ'] },
-    { id: 'Vポイント', keys: ['vポイント', 'vpoint'] },
-    { id: 'kyash', keys: ['kyash'] },
-    { id: 'Amazon', keys: ['amazon', 'アマゾン'] },
-    { id: 'WAON', keys: ['waon', 'ワオン'] }
+    { id: 'au PAY', keys: ['au pay', 'aupay'], available: true },
+    { id: 'majica', keys: ['majica', 'マジカ', 'ドン・キホーテ', 'アピタ', 'ピアゴ'], available: true },
+    { id: 'Kyash', keys: ['kyash'], available: true },
+    { id: 'Amazon', keys: ['amazon', 'アマゾン'], available: true },
+    { id: 'Vポイント', keys: ['vポイント', 'vpoint'], available: false },
+    { id: 'WAON', keys: ['waon', 'ワオン'], available: true }
   ];
+
+  function kindInfo(kind) {
+    var id = normalizeKind(kind);
+    for (var i = 0; i < KINDS.length; i++) if (KINDS[i].id === id) return KINDS[i];
+    return null;
+  }
+
+  function kindAvailable(kind) {
+    var info = kindInfo(kind);
+    return !!(info && info.available !== false);
+  }
 
   function normalizeKind(name) {
     var s = String(name || '').trim();
@@ -52,36 +123,172 @@
     return { action: 'stop', code: code, message: message, points: null, faceYen: null };
   }
 
+  function sessionContinuity(startKey, nowKey) {
+    var start = startKey == null ? '' : String(startKey);
+    var now = nowKey == null ? '' : String(nowKey);
+    if (!start && !now) return { ok: true, identified: false };
+    if (start && now && start === now) return { ok: true, identified: true };
+    return { ok: false, identified: false, code: 'session_changed' };
+  }
+
+  function authCookieMaterial(header) {
+    if (!header) return '';
+    var ignore = /^(?:_ga|_gid|_gat|_gcl|_clck|_clsk|__cf|cf_|clarity|sentry)/i;
+    var auth = /session|sid|auth|token|jwt|remember/i;
+    var chosen = [];
+    String(header).split(';').forEach(function (part) {
+      var bits = part.split('=');
+      var name = (bits.shift() || '').trim();
+      var value = bits.join('=').trim();
+      if (!name || !value) return;
+      if (ignore.test(name) || !auth.test(name)) return;
+      chosen.push(name + '=' + value);
+    });
+    chosen.sort();
+    return chosen.join('|');
+  }
+
+  function parseScreenOffers(text, kind) {
+    var keys = kind ? kindKeys(kind) : [];
+    var lines = String(text || '').split(/\n+/);
+    var seen = {};
+    var out = [];
+    lines.forEach(function (raw) {
+      var line = raw.replace(/\s+/g, ' ').trim();
+      if (!line || line.length > 80) return;
+      if (keys.length) {
+        var low = line.toLowerCase();
+        var hit = false;
+        for (var i = 0; i < keys.length; i++) if (low.indexOf(keys[i]) >= 0) hit = true;
+        if (!hit) return;
+      }
+      var fm = line.match(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{2,7})\s*円/);
+      if (!fm) return;
+      var face = parseInt(fm[1].replace(/,/g, ''), 10);
+      if (!face) return;
+      var points = null;
+      var pm = line.match(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{2,7})\s*(?:ポイント|pt|Ｐ)/i);
+      if (pm) {
+        var pts = parseInt(pm[1].replace(/,/g, ''), 10);
+        if (pts > 0) points = pts;
+      }
+      if (seen[face]) return;
+      seen[face] = 1;
+      out.push({ faceYen: face, points: points });
+    });
+    return out;
+  }
+
+  function offerRecord(kind) {
+    return CONFIRMED_OFFERS[normalizeKind(kind)] || null;
+  }
+
+  function faceChoices(kind, extra) {
+    extra = extra || {};
+    var id = normalizeKind(kind);
+    if (!kindAvailable(id)) return { status: 'unavailable', options: [], presets: [] };
+    var record = offerRecord(id);
+    if (record && record.mode === 'fixed' && record.options && record.options.length) {
+      if (record.inStock === false && extra.stockAvailable !== true) {
+        return { status: 'out_of_stock', options: record.options.slice(), presets: [], note: record.note || null, canExecute: false };
+      }
+      return { status: 'confirmed', options: record.options.slice(), presets: [], note: record.note || null, canExecute: true };
+    }
+    if (record && record.mode === 'out_of_stock') {
+      return { status: 'out_of_stock', options: [], presets: [], note: record.note || null };
+    }
+    if (record && record.mode === 'range') {
+      var presets = [];
+      if (record.unitConfirmed) {
+        RANGE_PRESETS.forEach(function (n) {
+          if (n >= record.minPoints && n <= record.maxPoints) presets.push({ points: n, officialFace: false });
+        });
+      }
+      return {
+        status: record.unitConfirmed ? 'range' : 'range_pending',
+        options: [],
+        presets: presets,
+        range: { minPoints: record.minPoints, maxPoints: record.maxPoints },
+        inputUnit: 'points',
+        note: record.note || null
+      };
+    }
+    if (extra.screenText && record && record.mode === 'fixed') {
+      var parsed = parseScreenOffers(extra.screenText, id);
+      if (parsed.length) return { status: 'screen', options: parsed, presets: [] };
+    }
+    return { status: 'waiting', options: [], presets: [] };
+  }
+
+  function parsePointAmount(raw, minPoints, maxPoints) {
+    if (raw == null) return { ok: false, code: 'empty' };
+    var s = String(raw).trim().replace(/[,\s，]/g, '').replace(/ポイント|pt|Ｐ/ig, '');
+    if (!s) return { ok: false, code: 'empty' };
+    if (!/^\d+$/.test(s)) return { ok: false, code: 'invalid' };
+    var n = parseInt(s, 10);
+    if (n < minPoints || n > maxPoints) return { ok: false, code: 'range' };
+    return { ok: true, points: n };
+  }
+
   function decideExchange(input) {
     input = input || {};
-    var account = String(input.account || '');
-    var seen = input.accountSeen == null ? '' : String(input.accountSeen);
     var count = digits(input.count);
     var balance = input.balance == null || input.balance === '' ? null : digits(input.balance);
     var face = input.faceYen == null || input.faceYen === '' ? null : digits(input.faceYen);
+    var selected = input.selectedFace == null || input.selectedFace === '' ? null : digits(input.selectedFace);
     var points = input.points == null || input.points === '' ? null : digits(input.points);
     var kind = normalizeKind(input.kind);
-    if (ACCOUNTS.indexOf(account) < 0) {
-      return stop('account_unknown', 'アカウントを確認できません。交換を止めました。');
+    if (!kindAvailable(kind)) {
+      return stop('unavailable', 'この交換先はいま選べません。');
     }
-    if (!seen || seen !== account) {
-      return stop('account_mismatch', '画面のアカウントが「' + account + '」と一致しません。交換を止めました。');
+    var choices = faceChoices(kind, { stockAvailable: input.stockAvailable === true });
+    if (choices.status === 'unavailable' || choices.status === 'out_of_stock' || choices.status === 'waiting' || choices.status === 'range_pending') {
+      return stop('face_waiting', 'この交換先はいま金額を確定できないので、交換を始めません。');
+    }
+    if (input.loggedIn !== true) {
+      return stop('logged_out', 'アプリ内のギフトウォレットにログインできていません。交換を止めました。');
+    }
+    var cont = sessionContinuity(input.sessionStart, input.sessionNow);
+    if (!cont.ok) {
+      return stop('session_changed', 'ログイン中のセッションが変わった可能性があるので、交換を止めました。入り直してから確認してください。');
     }
     if (!count || count < 1 || count > 20) {
       return stop('count_invalid', '交換の回数を確認できません。交換を止めました。');
     }
-    if (face == null) {
-      return stop('face_unknown', '画面の額面を確認できません。固定値では交換しません。');
+    if (choices.status === 'range') {
+      var parsed = parsePointAmount(input.selectedPoints, choices.range.minPoints, choices.range.maxPoints);
+      if (!parsed.ok) return stop('invalid_points', 'ポイントは1から10,000の整数で指定してください。');
+      if (points == null || points <= 0) return stop('points_unknown', '画面のポイントを確認できません。交換を止めました。');
+      if (points !== parsed.points) return stop('points_mismatch', '画面のポイントが入力した値と違います。交換を止めました。');
+      if (balance == null) return stop('balance_unknown', '残高を確認できません。交換を止めました。');
+      if (balance < points * count) return stop('balance_short', '残高が足りません。交換を止めました。');
+      return { action: 'proceed', code: 'ok', message: '', points: points, faceYen: null, need: points * count, kind: kind, identified: cont.identified, count: count, inputUnit: 'points' };
     }
-    if (face !== FACE_YEN) {
-      return stop('face_mismatch', '画面の額面が10,000円ではありません。交換を止めました。');
+    if (choices.status !== 'confirmed') {
+      return stop('face_waiting', 'この交換先の額面はまだ確定していません。交換を始めません。');
+    }
+    if (!selected) {
+      return stop('face_unknown', '額面が選ばれていません。確認できるまで交換しません。');
+    }
+    if (face == null) {
+      return stop('face_unknown', '画面の額面を確認できません。候補は出しません。');
+    }
+    if (face !== selected) {
+      return stop('face_mismatch', '画面の額面が選んだ額面と違います。交換を止めました。');
     }
     if (points == null || points <= 0) {
       return stop('points_unknown', '画面の必要ポイントを確認できません。交換を止めました。');
     }
-    var report = Object.prototype.hasOwnProperty.call(FIELD_REPORT_POINTS, kind) ? FIELD_REPORT_POINTS[kind] : null;
-    if (report != null && report !== points) {
-      return stop('points_mismatch', '画面の必要ポイントがこれまでの報告と一致しません。交換を止めました。');
+    var known = null;
+    var knownList = (offerRecord(kind) && offerRecord(kind).options) || [];
+    for (var ki = 0; ki < knownList.length; ki++) {
+      if (digits(knownList[ki].faceYen) === face) known = knownList[ki];
+    }
+    if (!known) {
+      return stop('face_unknown', '確認済みの額面にないため、交換を止めました。');
+    }
+    if (known && known.points != null && digits(known.points) !== points) {
+      return stop('points_mismatch', '画面の必要ポイントが確認済みの値と違います。交換を止めました。');
     }
     if (balance == null) {
       return stop('balance_unknown', '残高を確認できません。交換を止めました。');
@@ -97,7 +304,7 @@
       faceYen: face,
       need: points * count,
       kind: kind,
-      account: account,
+      identified: cont.identified,
       count: count
     };
   }
@@ -199,7 +406,10 @@
       balanceLeft: state.balanceLeft == null ? null : state.balanceLeft,
       openedClick: !!state.openedClick,
       baseline: (state.baseline || []).slice(),
-      brandsNav: !!state.brandsNav
+      brandsNav: !!state.brandsNav,
+      faceYen: state.faceYen == null ? null : state.faceYen,
+      sessionKey: state.sessionKey || '',
+      inputUnit: state.inputUnit || ''
     };
   }
 
@@ -234,11 +444,12 @@
 
     if (state.phase === 'check') {
       var remaining = (state.count || 0) - (state.index || 0);
-      if (page.balance == null || page.faceYen == null || page.points == null || !page.accountSeen) {
+      var needFace = state.inputUnit !== 'points';
+      if (page.loggedIn !== true || page.balance == null || page.points == null || (needFace && page.faceYen == null)) {
         if (page.timedOut) {
           return {
             state: Object.assign(state, { phase: 'stopped' }),
-            actions: [{ type: 'fail', code: 'unreadable', message: '画面の残高・額面・アカウントを確認できません。再送しません。', pressed: false }]
+            actions: [{ type: 'fail', code: 'unreadable', message: '画面のログイン・残高・額面を確認できません。再送しません。', pressed: false }]
           };
         }
         if (!state.brandsNav) {
@@ -248,13 +459,17 @@
         return { state: state, actions: [{ type: 'wait', reason: 'screen' }] };
       }
       var decision = decideExchange({
-        account: state.account,
-        accountSeen: page.accountSeen,
         kind: state.kind,
         count: remaining,
         balance: usableBalance(state, page),
         faceYen: page.faceYen,
-        points: page.points
+        selectedFace: state.faceYen,
+        selectedPoints: state.points,
+        points: page.points,
+        loggedIn: page.loggedIn === true,
+        stockAvailable: page.stockAvailable === true,
+        sessionStart: page.sessionStart || state.sessionKey,
+        sessionNow: page.sessionNow
       });
       if (decision.action === 'stop') {
         return {
@@ -263,6 +478,7 @@
         };
       }
       state.phase = 'pick';
+      state.inputUnit = decision.inputUnit || '';
       state.points = decision.points;
       state.balanceLeft = usableBalance(state, page);
       state.brandsNav = false;
@@ -270,10 +486,17 @@
     }
 
     if (state.phase === 'pick') {
-      if (digits(page.faceYen) !== FACE_YEN || digits(page.points) == null) {
+      if (state.inputUnit === 'points') {
+        if (digits(page.points) !== digits(state.points)) {
+          return {
+            state: Object.assign(state, { phase: 'stopped' }),
+            actions: [{ type: 'fail', code: 'points_mismatch', message: '画面のポイントが入力と違います。', pressed: false }]
+          };
+        }
+      } else if (digits(page.faceYen) !== digits(state.faceYen) || digits(page.points) == null) {
         return {
           state: Object.assign(state, { phase: 'stopped' }),
-          actions: [{ type: 'fail', code: 'face_unknown', message: '額面または必要ポイントを画面で確認できません。', pressed: false }]
+          actions: [{ type: 'fail', code: 'face_unknown', message: '選んだ額面または必要ポイントを画面で確認できません。', pressed: false }]
         };
       }
       if (state.points != null && digits(page.points) !== state.points) {
@@ -369,13 +592,17 @@
   }
 
   return {
-    ACCOUNTS: ACCOUNTS,
-    FACE_YEN: FACE_YEN,
-    FIELD_REPORT_POINTS: FIELD_REPORT_POINTS,
+    CONFIRMED_OFFERS: CONFIRMED_OFFERS,
     KINDS: KINDS,
+    kindAvailable: kindAvailable,
     normalizeKind: normalizeKind,
     kindKeys: kindKeys,
     decideExchange: decideExchange,
+    sessionContinuity: sessionContinuity,
+    authCookieMaterial: authCookieMaterial,
+    parseScreenOffers: parseScreenOffers,
+    faceChoices: faceChoices,
+    parsePointAmount: parsePointAmount,
     lockFromFailure: lockFromFailure,
     allowRestart: allowRestart,
     isMarkUsedLabel: isMarkUsedLabel,

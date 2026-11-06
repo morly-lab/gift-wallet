@@ -1,10 +1,18 @@
 /*
- * 交換メニュー。種類と回数だけを受け、額面は10,000円。
- * 必要ポイントは画面で確認する。失敗後は残高と履歴を確認するまで再送しない。
+ * 交換メニュー。ログイン中のギフトウォレットから、種類、確認済みの額面またはポイント、回数の順。
+ * 在庫切れや未確定の交換先では始めない。失敗後は残高と履歴を確認するまで再送しない。
  */
 (function (root) {
   var Guard = root.GwExchangeGuard;
   if (!Guard) return;
+
+  function currentChoice(kind) {
+    var stockAvailable = false;
+    try {
+      stockAvailable = !!(root.GiftWallet && root.GiftWallet.getOfferStock && root.GiftWallet.getOfferStock(kind) === 'in');
+    } catch (e) {}
+    return Guard.faceChoices(kind, { stockAvailable: stockAvailable });
+  }
 
   function closeX() {
     var o = document.getElementById('gwExModal');
@@ -36,7 +44,6 @@
     return null;
   }
 
-  var sel = { account: '', kind: '', count: 1 };
 
   function lockSheet(lock) {
     var unknown = lock && lock.mode === 'unknown';
@@ -92,56 +99,140 @@
     };
   }
 
-  function stepAccount() {
-    var h = '<div style="font-size:16px;font-weight:800;color:#d4a843;margin-bottom:8px;">どのアカウントで交換しますか？</div>';
-    h += '<div style="font-size:12px;line-height:1.6;opacity:.8;margin-bottom:10px;">パスワードは保存しません。画面に同じ名前が出ているときだけ進めます。</div>';
-    Guard.ACCOUNTS.forEach(function (name) {
-      h += '<button type="button" data-acc="' + name + '" style="width:100%;margin-bottom:8px;border:1px solid #d4a843;background:transparent;color:#fff;border-radius:12px;padding:14px;font-size:16px;font-weight:800;">' + name + '</button>';
+  var sel = { kind: '', faceYen: 0, points: null, count: 1 };
+
+  function stepKind() {
+    var h = '<div style="font-size:16px;font-weight:800;color:#d4a843;margin-bottom:8px;">何に交換しますか？</div>';
+    h += '<div style="font-size:12px;line-height:1.6;opacity:.8;margin-bottom:10px;">いまアプリ内でログインしているギフトウォレットだけを使います。ログイン情報はこのアプリに保存しません。</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+    Guard.KINDS.forEach(function (k) {
+      var off = k.available === false;
+      h += '<button type="button" data-kind="' + k.id + '"' + (off ? ' disabled' : '') + ' style="border:1px solid #d4a843;background:transparent;color:' + (off ? '#777' : '#fff') + ';border-radius:12px;padding:14px 8px;font-size:14px;font-weight:800;min-height:52px;">' + k.id + (off ? '<br><span style="font-size:11px;font-weight:700;">現在選択不可</span>' : '') + '</button>';
     });
-    h += '<button type="button" id="gwExCancel" style="width:100%;background:none;border:none;color:#aaa;padding:12px;">閉じる</button>';
+    h += '</div><button type="button" id="gwExCancel" style="width:100%;background:none;border:none;color:#aaa;padding:12px;">閉じる</button>';
     var o = shell(h);
-    o.querySelectorAll('button[data-acc]').forEach(function (b) {
-      b.onclick = function () { sel.account = b.getAttribute('data-acc'); stepKind(); };
+    o.querySelectorAll('button[data-kind]').forEach(function (b) {
+      b.onclick = function () {
+        if (b.disabled) return;
+        sel.kind = b.getAttribute('data-kind');
+        stepFace();
+      };
     });
     o.querySelector('#gwExCancel').onclick = closeX;
   }
 
-  function stepKind() {
-    var h = '<div style="font-size:12px;opacity:.8;"></div><div style="font-size:16px;font-weight:800;color:#d4a843;margin:4px 0 10px;">種類（額面10,000円）</div>';
-    h += '<div id="gwExAcc" style="font-size:12px;margin-bottom:8px;"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
-    Guard.KINDS.forEach(function (k) {
-      h += '<button type="button" data-kind="' + k.id + '" style="border:1px solid #d4a843;background:transparent;color:#fff;border-radius:12px;padding:14px 8px;font-size:14px;font-weight:800;">' + k.id + '</button>';
-    });
-    h += '</div><button type="button" id="gwExBack" style="width:100%;background:none;border:none;color:#aaa;padding:12px;">もどる</button>';
+  function stepFace() {
+    var choice = currentChoice(sel.kind);
+    var h = '<div style="font-size:12px;opacity:.8;">' + sel.kind + '</div>';
+    h += '<div style="font-size:16px;font-weight:800;color:#d4a843;margin:4px 0 8px;">額面を選びます</div>';
+    h += '<div id="gwExFaceNote" style="font-size:12px;line-height:1.6;margin-bottom:8px;"></div>';
+    h += '<div id="gwExFaces" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div>';
+    h += '<button type="button" id="gwExBack" style="width:100%;background:none;border:none;color:#aaa;padding:12px;">もどる</button>';
     var o = shell(h);
-    o.querySelector('#gwExAcc').textContent = sel.account;
-    o.querySelectorAll('button[data-kind]').forEach(function (b) {
-      b.onclick = function () { sel.kind = b.getAttribute('data-kind'); stepCount(); };
-    });
-    o.querySelector('#gwExBack').onclick = stepAccount;
+    var note = o.querySelector('#gwExFaceNote');
+    var box = o.querySelector('#gwExFaces');
+    if (choice.status === 'confirmed') {
+      note.textContent = '確認済みの額面です。消費ポイントは額面と別に表示し、交換画面でもう一度照合します。';
+      if (choice.note && choice.note.chargeLimitNote) note.textContent += ' ' + choice.note.chargeLimitNote;
+      if (choice.note && choice.note.expiryRule) note.textContent += ' 期限の目安: ' + choice.note.expiryRule + '。個別ギフトの日付が画面に無いときは未確認のままです。';
+      if (choice.note && choice.note.rewardNote) note.textContent += ' ' + choice.note.rewardNote;
+      choice.options.forEach(function (row) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.style.cssText = 'border:1px solid #d4a843;background:transparent;color:#fff;border-radius:12px;padding:12px 8px;font-size:13px;font-weight:800;min-height:64px;';
+        b.textContent = '額面 ' + Number(row.faceYen).toLocaleString('ja-JP') + '円\n消費 ' + (row.points == null ? '画面で確認' : Number(row.points).toLocaleString('ja-JP') + 'pt');
+        b.style.whiteSpace = 'pre-line';
+        b.onclick = function () { sel.inputUnit = ''; sel.faceYen = row.faceYen; sel.points = row.points; stepCount(); };
+        box.appendChild(b);
+      });
+    } else if (choice.status === 'range') {
+      note.textContent = '入力欄はポイントです。1〜' + choice.range.maxPoints.toLocaleString('ja-JP') + 'の整数だけ進めます。下のボタンは入力の目安で、固定額面の商品ではありません。円の額面と消費ポイントが同じとは表示しません。';
+      if (choice.note && choice.note.rewardNote) note.textContent += choice.note.rewardNote;
+      choice.presets.forEach(function (row) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.style.cssText = 'border:1px solid #d4a843;background:transparent;color:#fff;border-radius:12px;padding:12px 8px;font-size:13px;font-weight:800;min-height:52px;';
+        b.textContent = Number(row.points).toLocaleString('ja-JP') + 'ポイント\n目安';
+        b.style.whiteSpace = 'pre-line';
+        b.onclick = function () { sel.inputUnit = 'points'; sel.faceYen = 0; sel.points = row.points; stepCount(); };
+        box.appendChild(b);
+      });
+      var lab = document.createElement('label');
+      lab.style.cssText = 'grid-column:1 / -1;font-size:12px;color:#d4a843;font-weight:800;';
+      lab.textContent = '任意のポイント';
+      var input = document.createElement('input');
+      input.inputMode = 'numeric';
+      input.placeholder = '例 1234';
+      input.style.cssText = 'display:block;width:100%;margin-top:4px;background:#0d0d16;color:#fff;border:1px solid #444;border-radius:10px;padding:10px;font-size:16px;';
+      lab.appendChild(input);
+      box.appendChild(lab);
+      var go = document.createElement('button');
+      go.type = 'button';
+      go.style.cssText = 'grid-column:1 / -1;border:none;border-radius:999px;padding:12px;font-weight:800;background:linear-gradient(135deg,#f5d070,#d4a843);color:#000;';
+      go.textContent = 'このポイントで進む';
+      go.onclick = function () {
+        var parsed = Guard.parsePointAmount(input.value, choice.range.minPoints, choice.range.maxPoints);
+        if (!parsed.ok) { if (root.showToast) root.showToast('1〜10,000の整数で入力してください'); return; }
+        sel.inputUnit = 'points'; sel.faceYen = 0; sel.points = parsed.points; stepCount();
+      };
+      box.appendChild(go);
+    } else if (choice.status === 'out_of_stock') {
+      note.textContent = '確認済みの額面です。いまは在庫切れのため表示だけで、交換は始めません。画面から在庫切れが消えたら実行できます。';
+      if (choice.note && choice.note.expiryRule) note.textContent += ' 期限の表示: ' + choice.note.expiryRule + '。';
+      if (choice.note && choice.note.rewardNote) note.textContent += choice.note.rewardNote;
+      (choice.options || []).forEach(function (row) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.disabled = true;
+        b.style.cssText = 'border:1px solid #555;background:transparent;color:#888;border-radius:12px;padding:12px 8px;font-size:13px;font-weight:800;min-height:64px;';
+        b.style.whiteSpace = 'pre-line';
+        b.textContent = '額面 ' + Number(row.faceYen).toLocaleString('ja-JP') + '円\n消費 ' + Number(row.points).toLocaleString('ja-JP') + 'pt\n在庫切れ';
+        box.appendChild(b);
+      });
+    } else if (choice.status === 'unavailable') {
+      note.textContent = '現在選択不可です。提供がないため交換は始めません。';
+    } else {
+      note.textContent = 'この交換先の額面はまだ確認できていません。誤った候補は出しません。';
+    }
+    o.querySelector('#gwExBack').onclick = stepKind;
   }
 
   function stepCount() {
     var h = '<div id="gwExSum" style="font-size:12px;opacity:.85;margin-bottom:6px;"></div>';
-    h += '<div style="font-size:16px;font-weight:800;color:#d4a843;margin-bottom:8px;">10,000円分を何回交換しますか？</div>';
-    h += '<div style="font-size:12px;line-height:1.6;opacity:.8;margin-bottom:8px;">必要ポイントは交換画面の表示で確認します。kyashやmajicaの報告値では押しません。足りない、または表示と違うときは止めます。</div>';
+    h += '<div style="font-size:16px;font-weight:800;color:#d4a843;margin-bottom:8px;">何回交換しますか？</div>';
+    h += '<div style="font-size:12px;line-height:1.6;opacity:.8;margin-bottom:8px;">選んだ額面と、画面に出ている必要ポイントが違うときは止めます。</div>';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
     [1, 2, 3, 4, 5].forEach(function (n) {
       h += '<button type="button" data-n="' + n + '" style="flex:1;min-width:56px;min-height:48px;border:1px solid #d4a843;background:transparent;color:#fff;border-radius:12px;font-size:16px;font-weight:800;">' + n + '回</button>';
     });
     h += '</div><button type="button" id="gwExBack" style="width:100%;background:none;border:none;color:#aaa;padding:12px;">もどる</button>';
     var o = shell(h);
-    o.querySelector('#gwExSum').textContent = sel.account + ' / ' + sel.kind;
+    var summary = sel.inputUnit === 'points'
+      ? (sel.kind + ' / ' + Number(sel.points).toLocaleString('ja-JP') + 'ポイント')
+      : (sel.kind + ' / 額面 ' + Number(sel.faceYen).toLocaleString('ja-JP') + '円 / 消費 ' + (sel.points == null ? '画面で確認' : Number(sel.points).toLocaleString('ja-JP') + 'pt'));
+    o.querySelector('#gwExSum').textContent = summary;
     o.querySelectorAll('button[data-n]').forEach(function (b) {
       b.onclick = function () { sel.count = Number(b.getAttribute('data-n')); startJob(); };
     });
-    o.querySelector('#gwExBack').onclick = stepKind;
+    o.querySelector('#gwExBack').onclick = stepFace;
   }
 
   function startJob() {
     var lock = readLock();
     if (lock) { lockSheet(lock); return; }
-    var job = { account: sel.account, kind: sel.kind, count: sel.count, faceYen: Guard.FACE_YEN };
+    var choice = currentChoice(sel.kind);
+    var job;
+    if (sel.inputUnit === 'points') {
+      if (choice.status !== 'range') { if (root.showToast) root.showToast('この交換先はまだ始められません'); return; }
+      var parsed = Guard.parsePointAmount(sel.points, choice.range.minPoints, choice.range.maxPoints);
+      if (!parsed.ok) { if (root.showToast) root.showToast('1〜10,000の整数で入力してください'); return; }
+      job = { kind: sel.kind, count: sel.count, points: parsed.points, inputUnit: 'points' };
+    } else if (choice.status !== 'confirmed' || !sel.faceYen) {
+      if (root.showToast) root.showToast('額面が確定するまで交換しません');
+      return;
+    } else {
+      job = { kind: sel.kind, count: sel.count, faceYen: sel.faceYen };
+    }
     if (!(root.GiftWallet && root.GiftWallet.startExchangeJob)) {
       if (root.gwNeedUpdate) root.gwNeedUpdate();
       return;
@@ -214,6 +305,6 @@
   root.openExchange = function () {
     var lock = readLock();
     if (lock) { lockSheet(lock); return; }
-    stepAccount();
+    stepKind();
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
