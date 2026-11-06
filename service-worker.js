@@ -1,4 +1,4 @@
-const CACHE = 'eraberu-pay-v6';
+const CACHE = 'eraberu-pay-v7';
 const FILES = [
   './guide.html',
   './apn.html',
