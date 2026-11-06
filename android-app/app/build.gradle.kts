@@ -11,8 +11,8 @@ android {
         applicationId = "net.giftwallet.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 34
-        versionName = "1.4.18"
+        versionCode = 35
+        versionName = "1.4.19"
     }
 
     buildTypes {
@@ -35,6 +35,16 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+tasks.register<Copy>("syncExchangeJs") {
+    from(rootProject.projectDir.parentFile.resolve("exchange-vault.js"))
+    from(rootProject.projectDir.parentFile.resolve("vaton-exchange.js"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("syncExchangeJs")
 }
 
 dependencies {

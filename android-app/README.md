@@ -19,3 +19,5 @@ cd android-app
 ```
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
+
+交換の安全な自動操作は 1.4.19（versionCode 35）に入っています。`preBuild` がリポジトリ直下の `exchange-vault.js` と `vaton-exchange.js` を assets へコピーします。署名する場合はリポジトリ直下で `scripts/sign-apk.sh` を使い、出力は `dist/gift-wallet-1.4.19.apk` だけです。公開済みの `dist/gift-wallet.apk` と `dist/gift-wallet-1.4.18.apk` は上書きしません。この変更だけでは本番公開しません。
