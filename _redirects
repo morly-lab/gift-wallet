@@ -1,1 +1,2 @@
-/dist/gift-wallet-1.4.19.apk /dist/gift-wallet-1.4.19.withdrawn.txt 404
+# Pages の _redirects は 301/302/303/307/308 だけ有効。404 と 410 は無視され、無いファイルは HTML 200 になる。
+# 1.4.19 の配信停止は functions/dist/gift-wallet-1.4.19.apk.js が 410 を返す。
