@@ -12,6 +12,10 @@ Chrome 単体では他サイトのボタンを自動で押せません。この�
 
 ## ビルド
 
+配布用APKは、このリポジトリの `dist/` にある既存ファイルを消さずに、新しい版だけを追加する。
+
+現在のソースの版は **1.4.19（versionCode 35）**。署名済みの配布ファイルは `dist/gift-wallet-1.4.19.apk` と、アプリ内更新が取る `dist/gift-wallet.apk` です。それより前の版のAPKも `dist/` に残しています。
+
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 cd android-app
@@ -19,3 +23,5 @@ cd android-app
 ```
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
+
+このリポジトリには配布用の署名設定がありません。`assembleRelease` は未署名の `app-release-unsigned.apk` を作ります。配布用の鍵はここでは作りません。端末に入れて動作を見るだけの場合は `assembleDebug` がデバッグ署名のAPKを作ります。どちらも `dist/` の既存APKとは別に扱ってください。
