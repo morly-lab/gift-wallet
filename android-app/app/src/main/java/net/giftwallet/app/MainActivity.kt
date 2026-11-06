@@ -385,11 +385,13 @@ class MainActivity : AppCompatActivity() {
             webCall("gwExFail", JSONObject.quote("依頼内容を確認できません") + ",\"\",\"\"")
             return
         }
-        val account = job.optString("account")
-        val kind = job.optString("kind")
+        val kind = ExchangeSafety.canonicalKind(job.optString("kind"))
         val count = job.optInt("count", 0)
         val face = job.optInt("faceYen", 0)
-        if (!ExchangeSafety.acceptJob(account, kind, count, face)) {
+        val points = job.optInt("points", 0)
+        val inputUnit = job.optString("inputUnit")
+        val stockAvailable = if (kind == "majica") prefs.getString("offer_stock_majica", "out") == "in" else true
+        if (!ExchangeSafety.acceptJob(kind, count, face, points, inputUnit, stockAvailable)) {
             webCall("gwExFail", JSONObject.quote("依頼内容を確認できません") + "," + JSONObject.quote(kind) + ",\"\"")
             return
         }
@@ -403,11 +405,17 @@ class MainActivity : AppCompatActivity() {
             }
             return
         }
+        android.webkit.CookieManager.getInstance().flush()
+        val sessionKey = ExchangeSafety.sessionKey(
+            android.webkit.CookieManager.getInstance().getCookie("https://wallet.vaton.jp")
+        )
         val clean = JSONObject()
-            .put("account", account)
             .put("kind", kind)
             .put("count", count)
-            .put("faceYen", ExchangeSafety.FACE_YEN)
+            .put("faceYen", face)
+            .put("points", points)
+            .put("inputUnit", inputUnit)
+            .put("sessionKey", sessionKey)
             .put("at", System.currentTimeMillis())
             .put("hidden", true)
         prefs.edit().putString("exchange_job", clean.toString()).apply()
@@ -421,7 +429,7 @@ class MainActivity : AppCompatActivity() {
                 endHiddenExchange(keepJob = true)
                 val reason = "時間がかかっています。交換済みの可能性があるので、残高とマイギフトを確認してください"
                 holdExchange(reason)
-                webCall("gwExFail", JSONObject.quote(reason) + "," + JSONObject.quote(kind) + ",\"10000\"")
+                webCall("gwExFail", JSONObject.quote(reason) + "," + JSONObject.quote(kind) + ",\"\"")
             }
         }, 150_000L)
     }
@@ -941,7 +949,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val count = obj.optInt("count", 0).coerceIn(0, 20)
                 val kind = obj.optString("kind")
-                val safeKind = if (kind in ExchangeSafety.KINDS) kind else ""
+                val safeKind = ExchangeSafety.canonicalKind(kind).let { if (it in ExchangeSafety.KNOWN_KINDS) it else "" }
                 endHiddenExchange()
                 val payload = JSONObject().put("count", count).put("kind", safeKind)
                 webCall("gwExResult", JSONObject.quote(payload.toString()))
@@ -1065,6 +1073,33 @@ class MainActivity : AppCompatActivity() {
                         startCsvSync()
                     }
                 }, 1500)
+            }
+        }
+
+        @JavascriptInterface
+        fun setOfferStock(kind: String, state: String) {
+            val id = ExchangeSafety.canonicalKind(kind)
+            if (id != "majica") return
+            if (state != "in" && state != "out") return
+            prefs.edit().putString("offer_stock_majica", state).apply()
+        }
+
+        @JavascriptInterface
+        fun getOfferStock(kind: String): String {
+            val id = ExchangeSafety.canonicalKind(kind)
+            if (id != "majica") return ""
+            return prefs.getString("offer_stock_majica", "out") ?: "out"
+        }
+
+        @JavascriptInterface
+        fun currentSessionKey(): String {
+            return try {
+                android.webkit.CookieManager.getInstance().flush()
+                ExchangeSafety.sessionKey(
+                    android.webkit.CookieManager.getInstance().getCookie("https://wallet.vaton.jp")
+                )
+            } catch (_: Exception) {
+                ""
             }
         }
 

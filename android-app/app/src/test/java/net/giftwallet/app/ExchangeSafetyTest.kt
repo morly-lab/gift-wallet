@@ -8,14 +8,32 @@ import org.junit.Test
 
 class ExchangeSafetyTest {
     @Test
-    fun jobRequiresKnownAccountKindAndFace() {
-        assertTrue(ExchangeSafety.acceptJob("モーリー", "kyash", 1, 10000))
-        assertTrue(ExchangeSafety.acceptJob("めぱん", "majica", 2, 10000))
-        assertTrue(ExchangeSafety.acceptJob("モリ母", "Vポイント", 5, 10000))
-        assertFalse(ExchangeSafety.acceptJob("その他", "kyash", 1, 10000))
-        assertFalse(ExchangeSafety.acceptJob("モーリー", "unknown-brand", 1, 10000))
-        assertFalse(ExchangeSafety.acceptJob("モーリー", "kyash", 1, 9700))
-        assertFalse(ExchangeSafety.acceptJob("モーリー", "kyash", 0, 10000))
+    fun jobAcceptsConfirmedFacesAndPointRangesOnly() {
+        assertTrue(ExchangeSafety.acceptJob("Kyash", 1, 10000, 0, "", true))
+        assertTrue(ExchangeSafety.acceptJob("au PAY", 2, 50, 0, "", true))
+        assertTrue(ExchangeSafety.acceptJob("Amazon", 1, 0, 1234, "points", true))
+        assertTrue(ExchangeSafety.acceptJob("WAON", 1, 0, 1, "points", true))
+        assertFalse(ExchangeSafety.acceptJob("majica", 1, 300, 0, "", false))
+        assertTrue(ExchangeSafety.acceptJob("majica", 1, 10000, 0, "", true))
+        assertFalse(ExchangeSafety.acceptJob("Vポイント", 1, 1000, 0, "", true))
+        assertFalse(ExchangeSafety.acceptJob("Amazon", 1, 0, 10001, "points", true))
+        assertFalse(ExchangeSafety.acceptJob("Kyash", 1, 300, 0, "", true))
+        assertFalse(ExchangeSafety.acceptJob("au PAY", 0, 100, 0, "", true))
+    }
+
+    @Test
+    fun sessionKeyIgnoresAnalyticsAndChangesWhenAuthCookieChanges() {
+        val a = ExchangeSafety.sessionKey("session=alpha; _ga=1")
+        val b = ExchangeSafety.sessionKey("_ga=1; session=alpha")
+        val c = ExchangeSafety.sessionKey("session=beta")
+        assertTrue(a.isNotEmpty())
+        assertEquals(a, b)
+        assertFalse(a == c)
+        assertEquals("", ExchangeSafety.sessionKey("_ga=1; clarity=x"))
+        assertTrue(ExchangeSafety.sessionContinuity(a, a))
+        assertFalse(ExchangeSafety.sessionContinuity(a, c))
+        assertFalse(ExchangeSafety.sessionContinuity("", a))
+        assertTrue(ExchangeSafety.sessionContinuity("", ""))
     }
 
     @Test

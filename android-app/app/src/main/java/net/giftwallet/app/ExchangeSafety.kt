@@ -7,17 +7,67 @@ import java.net.URI
  * 配布用の署名鍵やログインパスワードは扱わない。
  */
 object ExchangeSafety {
-    val ACCOUNTS = setOf("モーリー", "めぱん", "モリ母")
-    val KINDS = setOf("au PAY", "majica", "Vポイント", "kyash", "Amazon", "WAON")
-    const val FACE_YEN = 10000
     const val LOGIN_URL = "https://wallet.vaton.jp/sign_in"
+    private val FIXED = mapOf(
+        "au PAY" to setOf(50, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000),
+        "Kyash" to setOf(200, 500, 1000, 10000),
+        "majica" to setOf(300, 500, 1000, 3000, 5000, 10000)
+    )
+    private val RANGE = setOf("Amazon", "WAON")
 
-    fun acceptJob(account: String, kind: String, count: Int, faceYen: Int): Boolean {
-        if (account !in ACCOUNTS) return false
-        if (kind !in KINDS) return false
-        if (faceYen != FACE_YEN) return false
+    val KNOWN_KINDS = setOf("au PAY", "majica", "Kyash", "Amazon", "Vポイント", "WAON")
+
+    fun canonicalKind(kind: String): String {
+        return when (kind.trim().lowercase()) {
+            "kyash" -> "Kyash"
+            "au pay", "aupay" -> "au PAY"
+            "majica", "マジカ" -> "majica"
+            else -> kind.trim()
+        }
+    }
+
+    /** 在庫切れの majica は、画面で在庫ありと分かるまで受けない。 */
+    fun acceptJob(kind: String, count: Int, faceYen: Int, points: Int, inputUnit: String, stockAvailable: Boolean): Boolean {
         if (count !in 1..20) return false
-        return true
+        val id = canonicalKind(kind)
+        if (id == "Vポイント") return false
+        if (inputUnit == "points") {
+            if (id !in RANGE) return false
+            return points in 1..10000
+        }
+        if (id == "majica" && !stockAvailable) return false
+        val faces = FIXED[id] ?: return false
+        return faceYen in faces
+    }
+
+    fun sessionContinuity(startKey: String?, nowKey: String?): Boolean {
+        val start = startKey.orEmpty()
+        val now = nowKey.orEmpty()
+        if (start.isEmpty() && now.isEmpty()) return true
+        return start.isNotEmpty() && start == now
+    }
+
+    fun authCookieMaterial(header: String?): String {
+        if (header.isNullOrBlank()) return ""
+        val ignore = Regex("^(?:_ga|_gid|_gat|_gcl|_clck|_clsk|__cf|cf_|clarity|sentry)", RegexOption.IGNORE_CASE)
+        val auth = Regex("session|sid|auth|token|jwt|remember", RegexOption.IGNORE_CASE)
+        val chosen = header.split(';').mapNotNull { part ->
+            val bits = part.split('=', limit = 2)
+            if (bits.size < 2) return@mapNotNull null
+            val name = bits[0].trim()
+            val value = bits[1].trim()
+            if (name.isEmpty() || value.isEmpty()) return@mapNotNull null
+            if (ignore.containsMatchIn(name) || !auth.containsMatchIn(name)) return@mapNotNull null
+            "$name=$value"
+        }.sorted()
+        return chosen.joinToString("|")
+    }
+
+    fun sessionKey(header: String?): String {
+        val material = authCookieMaterial(header)
+        if (material.isEmpty()) return ""
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        return md.digest(material.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 
     /** 進行中、または未確認のロックが残っているときは新しい交換を始めない。 */
