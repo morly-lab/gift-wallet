@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "include": ["/dist/gift-wallet-1.4.19.apk"],
+  "exclude": []
+}
